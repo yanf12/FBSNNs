@@ -1,4 +1,5 @@
 """
+Created on Fri Sep 28 18:48:35 2018
 @author: Maziar Raissi
 """
 
@@ -18,7 +19,7 @@ class FBSNN(ABC): # Forward-Backward Stochastic Neural Network
         self.M = M # number of trajectories
         self.N = N # number of time snapshots
         self.D = D # number of dimensions
-        
+        self.dt = T/N # time step
         # layers
         self.layers = layers # (D+1) --> 1
         

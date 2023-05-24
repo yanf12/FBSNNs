@@ -63,8 +63,12 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def net_u_Du(self, t, X):  # M x 1, M x D
         inputs = torch.cat([t, X], dim=1)
+
         u = self.fn_u(inputs)
+
         Du = torch.autograd.grad(torch.sum(u), X, retain_graph=True)[0]
+
+
         return u, Du
 
     def Dg_torch(self, X):  # M x D

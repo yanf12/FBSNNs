@@ -6,8 +6,9 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from plotting import newfig, savefig
 
-# this version runs low dim, but only with r = 0
-# the r !=0 version is to be checked
+
+# 1D black sholes
+
 class neural_net(nn.Module):
     def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1):
         super(neural_net, self).__init__()
@@ -38,9 +39,11 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r,Xi, T, M, N, D, learning_rate):
+    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate):
         super().__init__()
-        self.r = 0.05  # interest rate
+        self.r = r  # interest rate
+        self.sigma = sigma # volatility
+        self.K = K  # strike price
         self.Xi = Xi  # initial point
         self.T = T  # terminal time
 
@@ -51,13 +54,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
 
-    def phi_torch(self, t, X, Y, Z):  # M x 1, M x D, M x 1, M x D
-        return 0.05 * (Y - torch.sum(X * Z, dim=1).unsqueeze(-1))  # M x 1
+    def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-    def g_torch(self, X):  # M x D
-        return torch.sum(X ** 2, dim=1).unsqueeze(1)  # M x 1
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
 
-    def mu_torch(self, r,t, X, Y, Z):  # 1x1, M x 1, M x D, M x 1, M x D
+
+        return  res # M x 1
+
+    def g_torch(self, X,K):  # M x D
+        row_max, _ = torch.max(X, dim=1)  # get maximum along each row
+        return torch.clamp(row_max - K, min=0).unsqueeze(1)  # M x 1
+    def mu_torch(self, r,t, X, Y):  # 1x1, M x 1, M x D, M x 1, M x D
         return r*torch.ones([self.M, self.D])  # M x D
 
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
@@ -71,11 +78,19 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         u = self.fn_u(inputs)
 
-        Du = torch.autograd.grad(torch.sum(u), X, retain_graph=True)[0]
-        return u, Du
+
+        DuDx = torch.autograd.grad(torch.sum(u), X, retain_graph=True,create_graph=True)[0]
+
+        # print(DuDx.shape)
+
+        DuDt = torch.autograd.grad(torch.sum(u), t, retain_graph=True,create_graph=True)[0]
+
+        D2uDx2 = torch.autograd.grad(torch.sum(DuDx), X, retain_graph=True,create_graph=True)[0]
+
+        return u, DuDx,DuDt,D2uDx2 # M x 1, M x D, M x 1, M x D
 
     def Dg_torch(self, X):  # M x D
-        return torch.autograd.grad(torch.sum(self.g_torch(X)), X, retain_graph=True)[0]  # M x D
+        return torch.autograd.grad(torch.sum(self.g_torch(X,self.K)), X, retain_graph=True)[0]  # M x D
 
     def fetch_minibatch(self):
         T = self.T
@@ -105,7 +120,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         X0 = torch.cat([Xi] * self.M)  # M x D
 
         X0.requires_grad = True
-        Y0, Z0 = self.net_u_Du(t0, X0)  # M x 1, M x D
+
+        t0.requires_grad = True
+        Y0, DuDx0,DuDt0,D2uDx20 = self.net_u_Du(t0, X0)  # M x 1, M x D
 
         X_buffer.append(X0)
         Y_buffer.append(Y0)
@@ -126,12 +143,14 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             # print((W1 - W0).unsqueeze(-1).shape)
             # print(torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2).shape)
 
-            X1 = X0 + self.mu_torch(self.r,t0, X0, Y0, Z0)*(t1-t0) + torch.matmul(self.sigma_torch(t0, X0, Y0),
-                                                                                         (W1 - W0).unsqueeze(
-                                                                                              -1)).squeeze(2)  # M x D
-            Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, Z0) * (t1 - t0) + torch.sum(
-                Z0 * torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
-            Y1, Z1 = self.net_u_Du(t1, X1)
+            X1 = X0 + self.mu_torch(self.r,t0, X0, Y0)*(t1-t0) + self.sigma* X0 * (W1 - W0)
+            # print(X1.shape)
+
+            t1.requires_grad = True
+            Y1, DuDx1,DuDt1,D2uDx21 = self.net_u_Du(t1, X1)  # M x 1, M x D
+
+            Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, DuDx0,DuDt0,D2uDx20) * (t1 - t0) + DuDx0 * self.sigma*X0*(W1-W0)
+
 
             loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
 
@@ -139,20 +158,22 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             W0 = W1
             X0 = X1
             Y0 = Y1
-            Z0 = Z1
+            DuDx0 = DuDx1 # not sure if this is correct
+            DuDt0 = DuDt1
 
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-        loss = loss + torch.sum((Y1 - self.g_torch(X1)) ** 2)
-        loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
+        loss = loss + torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
+        #loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
 
         X = torch.stack(X_buffer, dim=1)  # M x N x D
         Y = torch.stack(Y_buffer, dim=1)  # M x N x 1
 
         return loss, X, Y, Y[0, 0, 0]
 
-    def train(self, N_Iter=100):
+    def train(self, N_Iter=10):
+        loss_list = []
 
         start_time = time.time()
         for it in range(N_Iter):
@@ -163,13 +184,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            loss_list.append(loss.detach().numpy()[0])
 
             # Print
-            if it % 10 == 0:
+            if it % 100 == 0:
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
                       (it, elapsed, loss, Y0_pred))
                 start_time = time.time()
+                plt.plot(np.log10(range(len(loss_list))),np.log10(loss_list))
+                plt.show()
+
 
     def predict(self, Xi_star, t_star, W_star):
         _, X_star, Y_star, _ = self.loss_function(t_star, W_star, Xi_star)
@@ -183,6 +208,8 @@ if __name__ == '__main__':
     D = 1  # number of dimensions
     learning_rate = 1e-3
     r = 0.00
+    K = 1.0
+    sigma = 0.4
 
     if D==1:
         Xi = torch.tensor([[1.0]]).float()
@@ -190,18 +217,54 @@ if __name__ == '__main__':
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
 
-    model = FBSNN(r,Xi, T, M, N, D, learning_rate)
+    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate)
 
-    model.train(N_Iter=1000)
+    model.train(N_Iter=10)
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
 
+    from scipy.special import comb
+    from scipy.stats import norm
+
+    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.2, type_='call'):
+        '''
+
+        :param S0: 股票当前价格
+        :param K: 行权价格
+        :param T: 到期时间（年）
+        :param r: 无风险利率， 如 r = 0.05
+        :param sigma: 波动率， 如 sigma = 0.20
+        :param type_:  call or put
+        :return: 期权价格
+        '''
+        if T==0:
+            if type_=="call":
+                return max(S0-K,0)
+            else:
+                return max(K-S0,0)
+        #求BSM模型下的欧式期权的理论定价
+        d1 =( (np.log(S0/K) + (r + 0.5*sigma**2)*T ) )/ (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        if type_== "call":
+            c = S0* norm.cdf(d1) - K* np.exp(-r*T)* norm.cdf(d2)
+            return c
+        elif type_=="put":
+            p = K* np.exp(-r*T)* norm.cdf(-d2) - S0* norm.cdf(-d1)
+
+            return p
+
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
         r = 0.05
-        sigma_max = 0.4
-        return np.exp((r + sigma_max ** 2) * (T - t)) * np.sum(X ** 2, 1, keepdims=True)  # (N+1) x 1
+        sigma = 0.4
+        K = 1
+        T =1
+        res = np.zeros([t.shape[0], X.shape[1]])
+        for i in range(t.shape[0]):
+            for j in range(X.shape[1]):
+                res[i, j] = theoretical_vanilla_eu(S0=X[i, j], K=K, T=T-t[i, 0], r=r, sigma=sigma, type_='call')
+        return   res
 
 
     t_test = t_test.detach().numpy()
@@ -237,13 +300,28 @@ if __name__ == '__main__':
     #savefig('BSB.png', crop=False)
     plt.show()
 
+#%%
+    t = np.linspace(0,1,10)
+    S = np.linspace(0,2,10)
 
+    t_mesh, S_mesh = np.meshgrid(t,S)
+
+    NN_price_surface = np.zeros([10,10])
+    for i in range(10):
+        for j in range(10):
+            NN_price_surface[i,j] = model.fn_u(torch.tensor([[t_mesh[i,j], S_mesh[i,j]]]).float()).detach().numpy()
+
+    ax = plt.figure()
+    ax = plt.axes(projection='3d')
+    ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.set_title('surface')
+    plt.show()
 
 
 
 
 #%%
-    errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
+    errors = np.sqrt((Y_test - Y_pred) ** 2 )
     mean_errors = np.mean(errors, 0)
     std_errors = np.std(errors, 0)
 

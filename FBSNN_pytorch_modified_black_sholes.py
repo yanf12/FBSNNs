@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from plotting import newfig, savefig
-
+from torch.optim.lr_scheduler import StepLR
 
 # 1D black sholes
 
@@ -53,6 +53,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
+        self.scheduler = StepLR(self.optimizer, step_size=20, gamma=0.5)
+
+        self.lambda_ = 1000
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
@@ -62,10 +65,12 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         return  res # M x 1
 
     def g_torch(self, X,K):  # M x D
+
         row_max, _ = torch.max(X, dim=1)  # get maximum along each row
+
         return torch.clamp(row_max - K, min=0).unsqueeze(1)  # M x 1
     def mu_torch(self, r,t, X, Y):  # 1x1, M x 1, M x D, M x 1, M x D
-        return r*torch.ones([self.M, self.D])  # M x D
+        return 0*torch.ones([self.M, self.D])  # M x D
 
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
         # print("sigma_torch")
@@ -143,7 +148,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             # print((W1 - W0).unsqueeze(-1).shape)
             # print(torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2).shape)
 
-            X1 = X0 + self.mu_torch(self.r,t0, X0, Y0)*(t1-t0) + self.sigma* X0 * (W1 - W0)
+            X1 = X0 + self.r*X0*(t1-t0) + self.sigma* X0 * (W1 - W0)
             # print(X1.shape)
 
             t1.requires_grad = True
@@ -160,11 +165,12 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             Y0 = Y1
             DuDx0 = DuDx1 # not sure if this is correct
             DuDt0 = DuDt1
+            D2uDx20 = D2uDx21
 
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-        loss = loss + torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
+        loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
         #loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
 
         X = torch.stack(X_buffer, dim=1)  # M x N x D
@@ -176,6 +182,10 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         loss_list = []
 
         start_time = time.time()
+        t = np.linspace(0, 1, 10)
+        S = np.linspace(0, 2, 10)
+
+        t_mesh, S_mesh = np.meshgrid(t, S)
         for it in range(N_Iter):
 
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
@@ -184,15 +194,30 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            # self.scheduler.step()
             loss_list.append(loss.detach().numpy()[0])
 
             # Print
-            if it % 100 == 0:
+            if it % 50 == 0:
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
                       (it, elapsed, loss, Y0_pred))
                 start_time = time.time()
                 plt.plot(np.log10(range(len(loss_list))),np.log10(loss_list))
+                plt.show()
+
+                NN_price_surface = np.zeros([10, 10])
+                #Exact_price_surface = np.zeros([10, 10])
+                for i in range(10):
+                    for j in range(10):
+                        NN_price_surface[i, j] = model.fn_u(
+                            torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
+
+                ax = plt.figure()
+                ax = plt.axes(projection='3d')
+                ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis',
+                                edgecolor='none')
+                ax.set_title('surface: iter = %d' % it)
                 plt.show()
 
 
@@ -203,23 +228,24 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 10  # number of trajectories (batch size)
-    N = 50  # number of time snapshots
+    M = 100 # number of trajectories (batch size)
+    N = 10  # number of time snapshots
     D = 1  # number of dimensions
-    learning_rate = 1e-3
-    r = 0.00
+    learning_rate = 1*1e-3
+    r = 0.05
     K = 1.0
     sigma = 0.4
+    epoch = 10000
 
     if D==1:
-        Xi = torch.tensor([[1.0]]).float()
+        Xi = torch.tensor([[0.9]]).float()
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
 
     model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate)
 
-    model.train(N_Iter=10)
+    model.train(N_Iter=epoch)
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
@@ -227,7 +253,7 @@ if __name__ == '__main__':
     from scipy.special import comb
     from scipy.stats import norm
 
-    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.2, type_='call'):
+    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
         '''
 
         :param S0: 股票当前价格
@@ -259,7 +285,7 @@ if __name__ == '__main__':
         r = 0.05
         sigma = 0.4
         K = 1
-        T =1
+        T = 1
         res = np.zeros([t.shape[0], X.shape[1]])
         for i in range(t.shape[0]):
             for j in range(X.shape[1]):
@@ -277,10 +303,6 @@ if __name__ == '__main__':
     samples = 5
 
 #%%
-
-
-
-
 
 #%%
     plt.figure()
@@ -307,13 +329,21 @@ if __name__ == '__main__':
     t_mesh, S_mesh = np.meshgrid(t,S)
 
     NN_price_surface = np.zeros([10,10])
+    Exact_price_surface = np.zeros([10,10])
     for i in range(10):
         for j in range(10):
             NN_price_surface[i,j] = model.fn_u(torch.tensor([[t_mesh[i,j], S_mesh[i,j]]]).float()).detach().numpy()
+            Exact_price_surface[i,j] = theoretical_vanilla_eu(S0=S_mesh[i,j], K=1, T=1-t_mesh[i,j], r=0.05, sigma=0.4, type_='call')
 
     ax = plt.figure()
     ax = plt.axes(projection='3d')
     ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.set_title('surface')
+    plt.show()
+
+    ax = plt.figure()
+    ax = plt.axes(projection='3d')
+    ax.plot_surface(t_mesh, S_mesh, Exact_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.set_title('surface')
     plt.show()
 

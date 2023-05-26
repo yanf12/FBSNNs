@@ -173,7 +173,7 @@ if __name__ == '__main__':
 
     model = FBSNN(Xi, T, M, N, D, learning_rate)
 
-    model.train(N_Iter=2)
+    model.train(N_Iter=2000)
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)

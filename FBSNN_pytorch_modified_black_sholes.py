@@ -55,7 +55,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=20, gamma=0.5)
 
-        self.lambda_ = 1000
+        self.lambda_ = 10
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
@@ -75,7 +75,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
         # print("sigma_torch")
         # print(X.shape)
-        return 0.4 * torch.diag_embed(X)  # M x D x D
+        return self.sigma * torch.diag_embed(X)  # M x D x D
 
     def net_u_Du(self, t, X):  # M x 1, M x D
 
@@ -194,7 +194,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            # self.scheduler.step()
+            #self.scheduler.step()
             loss_list.append(loss.detach().numpy()[0])
 
             # Print
@@ -229,16 +229,16 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 100 # number of trajectories (batch size)
-    N = 10  # number of time snapshots
+    N = 20  # number of time snapshots
     D = 1  # number of dimensions
-    learning_rate = 1*1e-3
+    learning_rate = 2*1e-3
     r = 0.05
     K = 1.0
     sigma = 0.4
-    epoch = 10000
+    epoch = 500
 
     if D==1:
-        Xi = torch.tensor([[0.9]]).float()
+        Xi = torch.tensor([[1.2]]).float()
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0

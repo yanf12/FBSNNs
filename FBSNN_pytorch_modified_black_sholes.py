@@ -122,7 +122,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         t0 = t[:, 0, :]  # M x 1
         W0 = W[:, 0, :]  # M x D
-        X0 = torch.cat([Xi] * self.M)  # M x D
+        # X0 = torch.tensor([np.linspace(0.5,1.5,self.M)]).transpose(-1,-2).float()  # M x D
+        # X0 = torch.cat([Xi] * self.M)  # M x D
+        X0 = Xi
 
         X0.requires_grad = True
 
@@ -148,7 +150,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             # print((W1 - W0).unsqueeze(-1).shape)
             # print(torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2).shape)
 
-            X1 = X0 + self.r*X0*(t1-t0) + self.sigma* X0 * (W1 - W0)
+            X1 = X0 + self.r*X0*(t1-t0) + self.sigma*X0 * (W1 - W0) #Euler-M scheme
+
+
             # print(X1.shape)
 
             t1.requires_grad = True
@@ -228,17 +232,18 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 100 # number of trajectories (batch size)
-    N = 20  # number of time snapshots
+    M = 200 # number of trajectories (batch size)
+    N = 50  # number of time snapshots
     D = 1  # number of dimensions
-    learning_rate = 2*1e-3
+    learning_rate = 1*1e-3
     r = 0.05
     K = 1.0
     sigma = 0.4
-    epoch = 500
+    epoch = 1000
 
     if D==1:
-        Xi = torch.tensor([[1.2]]).float()
+        # Xi = torch.tensor([np.linspace(0.5,2,M)]).transpose(-1,-2).float()
+        Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
@@ -300,11 +305,12 @@ if __name__ == '__main__':
                         [M, -1, 1])
     print(Y_test[0, 0, 0])
 
+
+
+#%%
+
+#%%
     samples = 5
-
-#%%
-
-#%%
     plt.figure()
     plt.plot(t_test[0:1, :, 0].T, Y_pred[0:1, :, 0].T, 'b', label=r'Learned $u(t,X_t)$')
     plt.plot(t_test[0:1, :, 0].T, Y_test[0:1, :, 0].T, 'r--', label=r'Exact $u(t,X_t)$')
@@ -365,3 +371,12 @@ if __name__ == '__main__':
     plt.show()
 
     #savefig('BSB_error.png', crop=False)
+
+
+#%%
+    error_surface = NN_price_surface- Exact_price_surface
+    ax = plt.figure()
+    ax = plt.axes(projection='3d')
+    ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    ax.set_title('Error surface')
+    plt.show()

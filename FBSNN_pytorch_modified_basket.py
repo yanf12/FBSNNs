@@ -37,8 +37,12 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, Xi, T, M, N, D, learning_rate):
+    def __init__(self, r, mu, sigma, rho, Xi, T, M, N, D, learning_rate):
         super().__init__()
+        self.r = r  # interest rate
+        self.mu = mu  # drift rate
+        self.sigma = sigma  # vol of each underlying
+        self.rho = rho  # correlation, assumed to be constant across the basket
         self.Xi = Xi  # initial point
         self.T = T  # terminal time
 
@@ -56,10 +60,11 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         return torch.sum(X ** 2, dim=1).unsqueeze(1)  # M x 1
 
     def mu_torch(self, t, X, Y, Z):  # M x 1, M x D, M x 1, M x D
-        return torch.zeros([self.M, self.D])  # M x D
+        # return torch.zeros([self.M, self.D])  # M x D
+        return torch.ones([self.M, self.D]) * torch.tensor(self.mu)
 
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
-        print(X.shape)
+        # print(X.shape)
         return 0.4 * torch.diag_embed(X)  # M x D x D
 
     def net_u_Du(self, t, X):  # M x 1, M x D
@@ -68,7 +73,6 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         u = self.fn_u(inputs)
 
         Du = torch.autograd.grad(torch.sum(u), X, retain_graph=True)[0]
-
 
         return u, Du
 
@@ -111,10 +115,12 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
 
-            X1 = X0 + torch.matmul(self.mu_torch(t0, X0, Y0, Z0), t1 - t0) + torch.matmul(self.sigma_torch(t0, X0, Y0),
-                                                                                          (W1 - W0).unsqueeze(
-                                                                                              -1)).squeeze(2)  # M x D
+            X1 = X0 + self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0) + torch.matmul(self.sigma_torch(t0, X0, Y0),
+                                                                               (W1 - W0).unsqueeze(
+                                                                                   -1)).squeeze(2)  # M x D
 
+            # print(self.sigma_torch(t0, X0, Y0).shape)
+            # print((W1 - W0).unsqueeze(-1).shape)
 
             Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, Z0) * (t1 - t0) + torch.sum(
                 Z0 * torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
@@ -142,6 +148,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
     def train(self, N_Iter=10):
 
         start_time = time.time()
+        loss_list = []
         for it in range(N_Iter):
 
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
@@ -149,6 +156,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
             self.optimizer.zero_grad()
             loss.backward()
+            loss_list.append(loss.item())
             self.optimizer.step()
 
             # Print
@@ -158,6 +166,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                       (it, elapsed, loss, Y0_pred))
                 start_time = time.time()
 
+                plt.plot(np.log10(range(len(loss_list))), np.log10(loss_list))
+                plt.show()
+
     def predict(self, Xi_star, t_star, W_star):
         _, X_star, Y_star, _ = self.loss_function(t_star, W_star, Xi_star)
 
@@ -165,18 +176,35 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 100  # number of trajectories (batch size)
-    N = 10  # number of time snapshots
-    D = 100  # number of dimensions
+    D = 10  # no. of underlyings
+    S0 = np.ones([10])  # Initial Value of Assets at first of february
+    K = 1  # Strike Price
+    r = 0.05
+    mu = [0.05, 0.06, 0.07, 0.05, 0.06, 0.07, 0.05, 0.06, 0.07, 0.06]
+    sigma = [.10, .11, .12, .13, .14, .14, .13, .12, .11, .10]
+    rho = 0.1  # Correlation between Brownian Motions
+    T = 1  # Time to Maturity
+    N_STEPS, N_PATHS = 252, 500000
+    var_cov_mat = np.zeros((D, D))
+    M = 100  # Number of paths
+    N = 52  # Number of time steps
+
+    for i in range(D):
+        for j in range(D):
+            if i == j:
+                var_cov_mat[i, j] = sigma[i] * sigma[j]
+            else:
+                var_cov_mat[i, j] = rho * sigma[i] * sigma[j]
+
     learning_rate = 1e-3
 
     Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
-    print(Xi.shape)
+    # print(Xi.shape)
 
-    model = FBSNN(Xi, T, M, N, D, learning_rate)
+    model = FBSNN(r, mu, sigma, rho, Xi, T, M, N, D, learning_rate)
 
-    model.train(N_Iter=2)
+    model.train(N_Iter=10)
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
@@ -197,13 +225,9 @@ if __name__ == '__main__':
 
     samples = 5
 
-#%%
+    # %%
 
-
-
-
-
-#%%
+    # %%
     plt.figure()
     plt.plot(t_test[0:1, :, 0].T, Y_pred[0:1, :, 0].T, 'b', label=r'Learned $u(t,X_t)$')
     plt.plot(t_test[0:1, :, 0].T, Y_test[0:1, :, 0].T, 'r--', label=r'Exact $u(t,X_t)$')
@@ -218,19 +242,8 @@ if __name__ == '__main__':
     plt.title('100-dimensional Black-Scholes-Barenblatt')
     plt.legend()
 
-    #savefig('BSB.png', crop=False)
+    # savefig('BSB.png', crop=False)
     plt.show()
-
-
-
-
-
-
-
-
-
-
-
 
     errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
     mean_errors = np.mean(errors, 0)
@@ -244,4 +257,4 @@ if __name__ == '__main__':
     plt.title('100-dimensional Black-Scholes-Barenblatt')
     plt.legend()
 
-    #savefig('BSB_error.png', crop=False)
+    # savefig('BSB_error.png', crop=False)

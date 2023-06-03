@@ -53,7 +53,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
-        self.scheduler = StepLR(self.optimizer, step_size=20, gamma=0.5)
+        self.scheduler = StepLR(self.optimizer, step_size=500, gamma=0.5)
 
         self.lambda_ = 10
 
@@ -150,8 +150,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             # print((W1 - W0).unsqueeze(-1).shape)
             # print(torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2).shape)
 
-            X1 = X0 + self.r*X0*(t1-t0) + self.sigma*X0 * (W1 - W0) #Euler-M scheme
-
+            X1 = X0 + self.r*X0*(t1-t0) + self.sigma * X0 * (W1 - W0) #Euler-M scheme
 
             # print(X1.shape)
 
@@ -192,14 +191,18 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         t_mesh, S_mesh = np.meshgrid(t, S)
         for it in range(N_Iter):
 
+
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
             loss, X_pred, Y_pred, Y0_pred = self.loss_function(t_batch, W_batch, self.Xi)
 
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            #self.scheduler.step()
+            self.scheduler.step()
             loss_list.append(loss.detach().numpy()[0])
+
+
+
 
             # Print
             if it % 50 == 0:
@@ -232,14 +235,14 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 200 # number of trajectories (batch size)
-    N = 50  # number of time snapshots
+    M = 5 # number of trajectories (batch size)
+    N = 10  # number of time snapshots
     D = 1  # number of dimensions
-    learning_rate = 1*1e-3
+    learning_rate = 3*1e-3
     r = 0.05
     K = 1.0
     sigma = 0.4
-    epoch = 1000
+    epoch = 1500
 
     if D==1:
         # Xi = torch.tensor([np.linspace(0.5,2,M)]).transpose(-1,-2).float()

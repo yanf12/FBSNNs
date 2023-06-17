@@ -329,7 +329,7 @@ if __name__ == '__main__':
     N = 100 # number of time snapshots
 
     learning_rate = 2.0*1e-3
-    epoch = 4000
+    epoch = 1
 
 
 

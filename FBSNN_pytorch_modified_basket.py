@@ -13,9 +13,9 @@ class neural_net(nn.Module):
         super(neural_net, self).__init__()
         self.pathbatch = pathbatch
         self.fc_1 = nn.Linear(n_dim, 256)
-        self.fc_2 = nn.Linear(256, 256)
-        self.fc_3 = nn.Linear(256, 256)
-        self.fc_4 = nn.Linear(256, 256)
+        #self.fc_2 = nn.Linear(256, 256)
+        #self.fc_3 = nn.Linear(256, 256)
+        #self.fc_4 = nn.Linear(256, 256)
         self.out = nn.Linear(256, n_output)
 
         self.relu = nn.ReLU()
@@ -24,21 +24,21 @@ class neural_net(nn.Module):
 
         with torch.no_grad():
             torch.nn.init.xavier_uniform(self.fc_1.weight)
-            torch.nn.init.xavier_uniform(self.fc_2.weight)
-            torch.nn.init.xavier_uniform(self.fc_3.weight)
-            torch.nn.init.xavier_uniform(self.fc_4.weight)
+            #torch.nn.init.xavier_uniform(self.fc_2.weight)
+            #torch.nn.init.xavier_uniform(self.fc_3.weight)
+            #torch.nn.init.xavier_uniform(self.fc_4.weight)
 
     def forward(self, state, train=False):
         state = torch.sin(self.fc_1(state))
-        state = torch.sin(self.fc_2(state))
-        state = torch.sin(self.fc_3(state))
-        state = torch.sin(self.fc_4(state))
+        #state = torch.sin(self.fc_2(state))
+        #state = torch.sin(self.fc_3(state))
+        #state = torch.sin(self.fc_4(state))
         fn_u = self.out(state)
         return fn_u
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate):
+    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate,gbm_scheme=1):
         super().__init__()
         self.r = r  # interest rate
         self.mu = mu  # drift rate
@@ -56,6 +56,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         var_cov_mat = np.zeros((D, D))
+        self.gbm_scheme = gbm_scheme  # 0:euler scheme for gbm #1: EXP scheme
         for i in range(D):
             for j in range(D):
                 if i == j:
@@ -98,9 +99,27 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         u = self.fn_u(inputs)
 
-        Du = torch.autograd.grad(torch.sum(u), X, retain_graph=True)[0]
 
-        return u, Du
+
+        DuDx = torch.autograd.grad(u, X, retain_graph=True,create_graph=True)[0]
+        print(DuDx.shape)
+
+        # print(DuDx.shape)
+
+        DuDt = torch.autograd.grad(u, t, retain_graph=True,create_graph=True)[0]
+
+        D2uDx2 = torch.autograd.grad(torch.sum(DuDx), X, retain_graph=True,create_graph=True)[0]
+        print(D2uDx2)
+        D2uDxixj = []
+
+        for i in range(DuDx.shape[1]):  # D
+            # print("1")
+            # print(torch.autograd.grad(DuDx[:, i], X, retain_graph=True, create_graph=True)[0])
+            D2uDxixj.append(torch.autograd.grad(DuDx[:, i], X, retain_graph=True, create_graph=True)[0])
+        D2uDxixj = torch.stack(D2uDxixj, dim=1)[0]  # M x D x D
+        # print(D2uDxixj)
+
+        return u, DuDx,DuDt,D2uDx2 # M x 1, M x D, M x 1, M x D
 
     def Dg_torch(self, X):  # M x D
         return torch.autograd.grad(torch.sum(self.g_torch(X)), X, retain_graph=True)[0]  # M x D
@@ -132,7 +151,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         W0 = W[:, 0, :]  # M x D
         X0 = torch.cat([Xi] * self.M)  # M x D
         X0.requires_grad = True
-        Y0, Z0 = self.net_u_Du(t0, X0)  # M x 1, M x D
+        t0.requires_grad = True
+        Y0, DuDx0,DuDt0,D2uDx20  = self.net_u_Du(t0, X0)  # M x 1, M x D
 
         X_buffer.append(X0)
         Y_buffer.append(Y0)
@@ -141,9 +161,14 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
 
-            X1 = X0 + self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0)*X0 + torch.matmul(self.sigma_torch(t0, X0, Y0),
-                                                                               (W1 - W0).unsqueeze(
-                                                                                   -1)).squeeze(2)*X0 # M x D
+            if self.gbm_scheme==0:
+                X1 = X0 + self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0)*X0 + torch.matmul(self.sigma_torch(t0, X0, Y0),
+                                                                                   (W1 - W0).unsqueeze(
+                                                                                       -1)).squeeze(2)*X0 # M x D
+            elif self.gbm_scheme ==1:
+                X1 = X0*torch.exp(self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0) - 0.5*torch.tensor(self.sigma)**2*(t1-t0)+torch.matmul(self.sigma_torch(t0, X0, Y0),
+                                                                                   (W1 - W0).unsqueeze(
+                                                                                       -1)).squeeze(2)) # not sure if this is right
 
             # print(self.sigma_torch(t0, X0, Y0).shape)
             # print((W1 - W0).unsqueeze(-1).shape)
@@ -151,7 +176,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, Z0) * (t1 - t0) + torch.sum(
                 Z0 * torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
 
-            Y1, Z1 = self.net_u_Du(t1, X1)
+            Y1, DuDx1,DuDt1,D2uDx21  = self.net_u_Du(t1, X1)
             loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
 
             t0 = t1
@@ -172,7 +197,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         return loss, X, Y, Y[0, 0, 0]
 
-    def train(self, N_Iter=10):
+    def train(self, N_Iter=1):
 
         start_time = time.time()
         loss_list = []
@@ -211,10 +236,10 @@ if __name__ == '__main__':
     sigma = [.10, .11, .12, .13, .14, .14, .13, .12, .11, .10]
     rho = 0.1  # Correlation between Brownian Motions
     T = 1  # Time to Maturity
-    N_STEPS, N_PATHS = 252, 2
+    N_STEPS, N_PATHS = 1, 1
     var_cov_mat = np.zeros((D, D))
-    M = 2  # Number of paths
-    N = 10  # Number of time steps
+    M = N_PATHS  # Number of paths
+    N = N_STEPS  # Number of time steps
     alpha = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
 
 
@@ -241,9 +266,9 @@ if __name__ == '__main__':
     # check GBM results
     t_test, W_test = model.fetch_minibatch()
 
-    # loss, X, Y, Z = model.loss_function(t_test, W_test,Xi)
-    # payoff = model.g_torch(X[:,-1,:]) * math.exp(-r*T)
-    # print(payoff.mean())
+    loss, X, Y, Z = model.loss_function(t_test, W_test,Xi)
+    payoff = model.g_torch(X[:,-1,:]) * math.exp(-r*T)
+    print(payoff.mean())
 
 
 
@@ -252,63 +277,63 @@ if __name__ == '__main__':
 
 
     # model.train(N_Iter=1)
-    print(t_test.length)
-
-    t_test, W_test = model.fetch_minibatch()
-
-    X_pred, Y_pred = model.predict(Xi, t_test, W_test)
 
 
+    # t_test, W_test = model.fetch_minibatch()
+    #
+    # X_pred, Y_pred = model.predict(Xi, t_test, W_test)
+    #
+    #
 
 
 
 
 #%%
-    def u_exact(t, X):  # (N+1) x 1, (N+1) x D
-        r = 0.05
-        sigma_max = 0.4
-        return np.exp((r + sigma_max ** 2) * (T - t)) * np.sum(X ** 2, 1, keepdims=True)  # (N+1) x 1
-
-
-    t_test = t_test.detach().numpy()
-    X_pred = X_pred.detach().numpy()
-    Y_pred = Y_pred.detach().numpy()
-    Y_test = np.reshape(u_exact(np.reshape(t_test[0:M, :, :], [-1, 1]), np.reshape(X_pred[0:M, :, :], [-1, D])),
-                        [M, -1, 1])
-    print(Y_test[0, 0, 0])
-
-    samples = 5
-
-    # %%
+    # def u_exact(t, X):  # (N+1) x 1, (N+1) x D
+    #     r = 0.05
+    #     sigma_max = 0.4
+    #     return np.exp((r + sigma_max ** 2) * (T - t)) * np.sum(X ** 2, 1, keepdims=True)  # (N+1) x 1
+    #
+    #
+    # t_test = t_test.detach().numpy()
+    # X_pred = X_pred.detach().numpy()
+    # Y_pred = Y_pred.detach().numpy()
+    # Y_test = np.reshape(u_exact(np.reshape(t_test[0:M, :, :], [-1, 1]), np.reshape(X_pred[0:M, :, :], [-1, D])),
+    #                     [M, -1, 1])
+    # print(Y_test[0, 0, 0])
+    #
+    # samples = 5
 
     # %%
-    plt.figure()
-    plt.plot(t_test[0:1, :, 0].T, Y_pred[0:1, :, 0].T, 'b', label=r'Learned $u(t,X_t)$')
-    plt.plot(t_test[0:1, :, 0].T, Y_test[0:1, :, 0].T, 'r--', label=r'Exact $u(t,X_t)$')
-    plt.plot(t_test[0:1, -1, 0], Y_test[0:1, -1, 0], 'ko', label=r'$Y_T = u(T,X_T)$')
 
-    plt.plot(t_test[1:samples, :, 0].T, Y_pred[1:samples, :, 0].T, 'b')
-    plt.plot(t_test[1:samples, :, 0].T, Y_test[1:samples, :, 0].T, 'r--')
-    plt.plot(t_test[1:samples, -1, 0], Y_test[1:samples, -1, 0], 'ko')
-    plt.plot([0], Y_test[0, 0, 0], 'ks', label=r'$Y_0 = u(0,X_0)$')
-    plt.xlabel(r'$t$')
-    plt.ylabel(r'$Y_t = u(t,X_t)$')
-    plt.title('100-dimensional Black-Scholes-Barenblatt')
-    plt.legend()
-
-    # savefig('BSB.png', crop=False)
-    plt.show()
-
-    errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
-    mean_errors = np.mean(errors, 0)
-    std_errors = np.std(errors, 0)
-
-    plt.figure()
-    plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
-    plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
-    plt.xlabel(r'$t$')
-    plt.ylabel('relative error')
-    plt.title('100-dimensional Black-Scholes-Barenblatt')
-    plt.legend()
+    # %%
+    # plt.figure()
+    # plt.plot(t_test[0:1, :, 0].T, Y_pred[0:1, :, 0].T, 'b', label=r'Learned $u(t,X_t)$')
+    # plt.plot(t_test[0:1, :, 0].T, Y_test[0:1, :, 0].T, 'r--', label=r'Exact $u(t,X_t)$')
+    # plt.plot(t_test[0:1, -1, 0], Y_test[0:1, -1, 0], 'ko', label=r'$Y_T = u(T,X_T)$')
+    #
+    # plt.plot(t_test[1:samples, :, 0].T, Y_pred[1:samples, :, 0].T, 'b')
+    # plt.plot(t_test[1:samples, :, 0].T, Y_test[1:samples, :, 0].T, 'r--')
+    # plt.plot(t_test[1:samples, -1, 0], Y_test[1:samples, -1, 0], 'ko')
+    # plt.plot([0], Y_test[0, 0, 0], 'ks', label=r'$Y_0 = u(0,X_0)$')
+    # plt.xlabel(r'$t$')
+    # plt.ylabel(r'$Y_t = u(t,X_t)$')
+    # plt.title('100-dimensional Black-Scholes-Barenblatt')
+    # plt.legend()
+    #
+    # # savefig('BSB.png', crop=False)
+    # plt.show()
+    #
+    # errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
+    # mean_errors = np.mean(errors, 0)
+    # std_errors = np.std(errors, 0)
+    #
+    # plt.figure()
+    # plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
+    # plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
+    # plt.xlabel(r'$t$')
+    # plt.ylabel('relative error')
+    # plt.title('100-dimensional Black-Scholes-Barenblatt')
+    # plt.legend()
 
     # savefig('BSB_error.png', crop=False)

@@ -65,8 +65,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                     var_cov_mat[i, j] = rho * sigma[i] * sigma[j]
         var_cov_mat = torch.tensor(var_cov_mat)
         self.var_cov_mat = var_cov_mat
-    def phi_torch(self, t, X, Y, Z):  # M x 1, M x D, M x 1, M x D
-        return 0.05 * (Y - torch.sum(X * Z, dim=1).unsqueeze(-1))  # M x 1
+    def phi_torch(self, t, X, DuDt,DuDx,D2uDx2):  # M x 1, M x D, M x 1, M x D
+
+
+        print(DuDt.shape)
+
+        return   # M x 1
+
+
+
+
+
 
     def g_torch(self, X):  # M x D
         # terminal condition
@@ -78,7 +87,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         # print(res)
         return torch.clamp(res-self.K,min = 0).unsqueeze(-1) # M x 1
 
-    def mu_torch(self, t, X, Y, Z):  # M x 1, M x D, M x 1, M x D
+    def mu_torch(self, t, X, Y):  # M x 1, M x D, M x 1, M x D
         # return torch.zeros([self.M, self.D])  # M x D
         return torch.ones([self.M, self.D]) * torch.tensor(self.mu)
 
@@ -95,29 +104,25 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         return  res  # M x D x D
 
     def net_u_Du(self, t, X):  # M x 1, M x D
-        inputs = torch.cat([t, X], dim=1)
-
-        u = self.fn_u(inputs)
 
 
+        inputs = torch.cat([t, X], dim=1) #M x (D+1）
 
-        DuDx = torch.autograd.grad(u, X, retain_graph=True,create_graph=True)[0]
-        print(DuDx.shape)
 
-        # print(DuDx.shape)
+        u = self.fn_u(inputs) # M x 1
 
-        DuDt = torch.autograd.grad(u, t, retain_graph=True,create_graph=True)[0]
+        DuDt = torch.autograd.grad(torch.sum(u), t, retain_graph=True,create_graph=True)[0]  # M x 1
+        DuDx = torch.autograd.grad(torch.sum(u), X, retain_graph=True,create_graph=True)[0]  # M x D
 
-        D2uDx2 = torch.autograd.grad(torch.sum(DuDx), X, retain_graph=True,create_graph=True)[0]
-        print(D2uDx2)
-        D2uDxixj = []
 
-        for i in range(DuDx.shape[1]):  # D
-            # print("1")
-            # print(torch.autograd.grad(DuDx[:, i], X, retain_graph=True, create_graph=True)[0])
-            D2uDxixj.append(torch.autograd.grad(DuDx[:, i], X, retain_graph=True, create_graph=True)[0])
-        D2uDxixj = torch.stack(D2uDxixj, dim=1)[0]  # M x D x D
-        # print(D2uDxixj)
+        D2uDx2_list = []
+
+        for i in range(self.M):
+            hessian = torch.autograd.functional.hessian(lambda x: self.fn_u(x)[0], inputs[i,:],create_graph=True)
+            D2uDx2_list.append(hessian[1:,1:]) # note that this hessian include time, we exclude the time part here
+
+        D2uDx2 = torch.stack(D2uDx2_list,dim =0)
+
 
         return u, DuDx,DuDt,D2uDx2 # M x 1, M x D, M x 1, M x D
 
@@ -150,6 +155,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         t0 = t[:, 0, :]  # M x 1
         W0 = W[:, 0, :]  # M x D
         X0 = torch.cat([Xi] * self.M)  # M x D
+
         X0.requires_grad = True
         t0.requires_grad = True
         Y0, DuDx0,DuDt0,D2uDx20  = self.net_u_Du(t0, X0)  # M x 1, M x D
@@ -157,40 +163,42 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         X_buffer.append(X0)
         Y_buffer.append(Y0)
 
+        X0.requires_grad = True
+
+        t0.requires_grad = True
+
         for n in range(0, self.N):
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
 
             if self.gbm_scheme==0:
-                X1 = X0 + self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0)*X0 + torch.matmul(self.sigma_torch(t0, X0, Y0),
+                X1 = X0 + self.mu_torch(t0, X0, Y0) * (t1 - t0)*X0 + torch.matmul(self.sigma_torch(t0, X0, Y0),
                                                                                    (W1 - W0).unsqueeze(
                                                                                        -1)).squeeze(2)*X0 # M x D
             elif self.gbm_scheme ==1:
-                X1 = X0*torch.exp(self.mu_torch(t0, X0, Y0, Z0) * (t1 - t0) - 0.5*torch.tensor(self.sigma)**2*(t1-t0)+torch.matmul(self.sigma_torch(t0, X0, Y0),
+                X1 = X0*torch.exp(self.mu_torch(t0, X0, Y0) * (t1 - t0) - 0.5*torch.tensor(self.sigma)**2*(t1-t0)+torch.matmul(self.sigma_torch(t0, X0, Y0),
                                                                                    (W1 - W0).unsqueeze(
                                                                                        -1)).squeeze(2)) # not sure if this is right
 
-            # print(self.sigma_torch(t0, X0, Y0).shape)
-            # print((W1 - W0).unsqueeze(-1).shape)
 
-            Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, Z0) * (t1 - t0) + torch.sum(
-                Z0 * torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
+            Y1_tilde = Y0 + self.phi_torch(t0, X0,DuDt0,DuDx0,D2uDx20) * (t1 - t0) + torch.sum(
+                Y0 * torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
 
-            Y1, DuDx1,DuDt1,D2uDx21  = self.net_u_Du(t1, X1)
-            loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
-
+        #    Y1, DuDx1,DuDt1,D2uDx21  = self.net_u_Du(t1, X1)
+        #     loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
+        #
             t0 = t1
             W0 = W1
             X0 = X1
             Y0 = Y1
-            Z0 = Z1
-
+        #
+        #
             X_buffer.append(X0)
             Y_buffer.append(Y0)
-
-
-        loss = loss + torch.sum((Y1 - self.g_torch(X1)) ** 2)
-        loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
+        #
+        #
+        # loss = loss + torch.sum((Y1 - self.g_torch(X1)) ** 2)
+        # loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
 
         X = torch.stack(X_buffer, dim=1)  # M x N x D
         Y = torch.stack(Y_buffer, dim=1)  # M x N x 1
@@ -236,7 +244,7 @@ if __name__ == '__main__':
     sigma = [.10, .11, .12, .13, .14, .14, .13, .12, .11, .10]
     rho = 0.1  # Correlation between Brownian Motions
     T = 1  # Time to Maturity
-    N_STEPS, N_PATHS = 1, 1
+    N_STEPS, N_PATHS = 1, 3
     var_cov_mat = np.zeros((D, D))
     M = N_PATHS  # Number of paths
     N = N_STEPS  # Number of time steps

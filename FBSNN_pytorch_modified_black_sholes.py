@@ -150,6 +150,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         u = self.fn_u(inputs)
 
 
+
         DuDx = torch.autograd.grad(torch.sum(u), X, retain_graph=True,create_graph=True)[0]
 
         # print(DuDx.shape)
@@ -181,7 +182,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         return torch.from_numpy(t).float(), torch.from_numpy(W).float()
 
-    def loss_function(self, t, W, Xi):  # M x (N+1) x 1, M x (N+1) x D, 1 x D
+    def loss_function(self, t, W, Xi):  # M x (N+1) x 1, M x (N+1) x D, MxD
         loss = torch.zeros(1)
         X_buffer = []
         Y_buffer = []

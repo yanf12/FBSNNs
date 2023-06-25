@@ -155,6 +155,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
     def train(self, N_Iter=100):
 
         start_time = time.time()
+        test_sample_list = []
         for it in range(N_Iter):
 
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D

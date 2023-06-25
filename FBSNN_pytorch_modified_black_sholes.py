@@ -85,7 +85,7 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_):
+    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input):
         super().__init__()
         self.r = r  # interest rate
         self.sigma = sigma # volatility
@@ -104,6 +104,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.lambda_ = lambda_
 
         self.gbm_scheme = gbm_scheme # 0:euler scheme for gbm #1: EXP scheme
+        self.out_of_sample_input = out_of_sample_input
 
 
     def theoretical_vanilla_eu(self,S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
@@ -262,6 +263,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         start_time = time.time()
         t = np.linspace(0, 1, 10)
         S = np.linspace(0, 2, 10)
+        test_sample_list = []
 
         t_mesh, S_mesh = np.meshgrid(t, S)
         for it in range(N_Iter):
@@ -275,6 +277,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             self.optimizer.step()
             self.scheduler.step()
             loss_list.append(loss.detach().numpy()[0])
+
+            test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
 
 
 
@@ -315,6 +319,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 plt.show()
 
         self.loss_list = loss_list
+        self.test_sample_list = test_sample_list
 
 
 
@@ -330,7 +335,7 @@ if __name__ == '__main__':
     N = 100 # number of time snapshots
 
     learning_rate = 2.0*1e-3
-    epoch = 1
+    epoch = 100
 
 
 
@@ -339,6 +344,10 @@ if __name__ == '__main__':
     sigma = 0.4
     D = 1  # number of dimensions
     lambda_ = 10 # weight for BC
+    out_of_sample_test_t = 0
+    out_of_sample_test_S = 1
+
+    out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
 
 
     if D==1:
@@ -348,12 +357,13 @@ if __name__ == '__main__':
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
 
-    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_)
+    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
 
     model.train(N_Iter=epoch)
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
+    test_sample_list = model.test_sample_list
 
 
 

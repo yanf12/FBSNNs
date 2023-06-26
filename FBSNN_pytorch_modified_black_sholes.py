@@ -99,7 +99,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
-        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.7)
+        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
 
         self.lambda_ = lambda_
 
@@ -286,7 +286,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
             # Print
-            if it % 100 == 0:
+            if it % 50 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -318,6 +318,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 ax.set_title('error surface: iter = %d' % it)
                 plt.show()
 
+
+
         self.loss_list = loss_list
         self.test_sample_list = test_sample_list
 
@@ -331,11 +333,11 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 10 # number of trajectories (batch size)
-    N = 100 # number of time snapshots
+    M = 18 # number of trajectories (batch size)
+    N = 20 # number of time snapshots
 
-    learning_rate = 2.0*1e-3
-    epoch = 100
+    learning_rate = 3.0*1e-3
+    epoch = 1000
 
 
 
@@ -348,6 +350,7 @@ if __name__ == '__main__':
     out_of_sample_test_S = 1
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
+    gbm_scheme = 0 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:
@@ -357,7 +360,7 @@ if __name__ == '__main__':
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
 
-    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
+    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=0,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
 
     model.train(N_Iter=epoch)
 
@@ -393,6 +396,8 @@ if __name__ == '__main__':
 
             return p
 
+    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S,K,T-out_of_sample_test_t,r,sigma)
+
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
         r = 0.05
@@ -412,6 +417,20 @@ if __name__ == '__main__':
     Y_test = np.reshape(u_exact(np.reshape(t_test[0:M, :, :], [-1, 1]), np.reshape(X_pred[0:M, :, :], [-1, D])),
                         [M, -1, 1])
     print(Y_test[0, 0, 0])
+
+#%%
+    plt.figure(figsize=[9,6])
+    plt.plot(test_sample_list, label='NN output price')
+    plt.plot(np.ones(len(test_sample_list))*test_sample_exact, label='test sample exact price')
+    plt.title('Covergence of the price')
+    plt.xlabel("Epochs trained")
+    plt.ylabel("Price")
+    plt.legend()
+    plt.show()
+
+
+
+
 
 
 

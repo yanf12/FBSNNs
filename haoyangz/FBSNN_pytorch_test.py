@@ -37,7 +37,7 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, Xi, T, M, N, D, learning_rate):
+    def __init__(self, Xi, T, M, N, D, learning_rate,out_of_sample_input):
         super().__init__()
         self.Xi = Xi  # initial point
         self.T = T  # terminal time
@@ -48,6 +48,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
+        self.out_of_sample_input = out_of_sample_input
 
     def phi_torch(self, t, X, Y, Z):  # M x 1, M x D, M x 1, M x D
         return 0.05 * (Y - torch.sum(X * Z, dim=1).unsqueeze(-1))  # M x 1
@@ -107,6 +108,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         X_buffer.append(X0)
         Y_buffer.append(Y0)
 
+
         for n in range(0, self.N):
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
@@ -131,21 +133,26 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
+
+
         loss = loss + torch.sum((Y1 - self.g_torch(X1)) ** 2)
         loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
 
         X = torch.stack(X_buffer, dim=1)  # M x N x D
         Y = torch.stack(Y_buffer, dim=1)  # M x N x 1
 
+
         return loss, X, Y, Y[0, 0, 0]
 
     def train(self, N_Iter=10):
 
         start_time = time.time()
+        test_sample_list = []
         for it in range(N_Iter):
 
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
             loss, X_pred, Y_pred, Y0_pred = self.loss_function(t_batch, W_batch, self.Xi)
+            test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -157,6 +164,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
                       (it, elapsed, loss, Y0_pred))
                 start_time = time.time()
+        self.test_sample_list = test_sample_list
 
     def predict(self, Xi_star, t_star, W_star):
         _, X_star, Y_star, _ = self.loss_function(t_star, W_star, Xi_star)
@@ -165,29 +173,40 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
+
+    #%%
     M = 10  # number of trajectories (batch size)
-    N = 10  # number of time snapshots
-    D = 100  # number of dimensions
-    learning_rate = 3e-3
+    N = 100  # number of time snapshots
+    D = 10  # number of dimensions
+    learning_rate = 2e-3
 
     Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
     print(Xi.shape)
+    out_of_sample_input = torch.tensor([0,1,1,1,1,1,1,1,1,1,1]).float()
 
-    model = FBSNN(Xi, T, M, N, D, learning_rate)
+    model = FBSNN(Xi, T, M, N, D, learning_rate,out_of_sample_input)
+
 
     model.train(N_Iter=2000)
+
+
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
 
-
+#%%
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
         r = 0.05
         sigma_max = 0.4
         return np.exp((r + sigma_max ** 2) * (T - t)) * np.sum(X ** 2, 1, keepdims=True)  # (N+1) x 1
 
 
+    plt.plot(model.test_sample_list)
+    plt.plot(np.ones(len(model.test_sample_list))*u_exact(0, np.array([[1,1,1,1,1,1,1,1,1,1,1]]))[0,0])
+
+    plt.show()
+#%%
     t_test = t_test.detach().numpy()
     X_pred = X_pred.detach().numpy()
     Y_pred = Y_pred.detach().numpy()

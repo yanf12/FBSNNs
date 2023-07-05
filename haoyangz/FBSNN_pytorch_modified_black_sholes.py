@@ -286,7 +286,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
             # Print
-            if it % 50 == 0:
+            if it % 5000 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -333,10 +333,10 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 18 # number of trajectories (batch size)
-    N = 20 # number of time snapshots
+    M = 5 # number of trajectories (batch size)
+    N = 200 # number of time snapshots
 
-    learning_rate = 3.0*1e-3
+    learning_rate = 2.0*1e-3
     epoch = 1000
 
 
@@ -345,12 +345,12 @@ if __name__ == '__main__':
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 10 # weight for BC
+    lambda_ = 100 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
-    gbm_scheme = 0 # in theory 1 is more accurate. 0 is accurate for large N
+    gbm_scheme = 1 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:

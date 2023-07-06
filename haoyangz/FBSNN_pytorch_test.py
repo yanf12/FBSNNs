@@ -188,7 +188,7 @@ if __name__ == '__main__':
     model = FBSNN(Xi, T, M, N, D, learning_rate,out_of_sample_input)
 
 
-    model.train(N_Iter=2000)
+    model.train(N_Iter=10000)
 
 
 

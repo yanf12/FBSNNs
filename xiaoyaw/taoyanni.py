@@ -67,14 +67,14 @@ class neural_net(nn.Module):
     def forward(self, state, train=False):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
-        # state = self.activation(self.fc_3(state))
-        # state = self.activation(self.fc_4(state))
-        # state = self.activation(self.fc_5(state))
-        # state = self.activation(self.fc_6(state))
-        # state = self.activation(self.fc_7(state))
-        # state = self.activation(self.fc_8(state))
-        # state = self.activation(self.fc_9(state))
-        # state = self.activation(self.fc_10(state))
+        state = self.activation(self.fc_3(state))
+        state = self.activation(self.fc_4(state))
+        state = self.activation(self.fc_5(state))
+        state = self.activation(self.fc_6(state))
+        state = self.activation(self.fc_7(state))
+        state = self.activation(self.fc_8(state))
+        state = self.activation(self.fc_9(state))
+        state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
 
@@ -126,7 +126,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2 * 0
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
         return  res # M x 1
 
     def g_torch(self, X,K):  # M x D
@@ -153,6 +153,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         DuDx = torch.autograd.grad(torch.sum(u), X, retain_graph=True,create_graph=True)[0]
 
         # print(DuDx.shape)
+        # print(DuDx)
 
         DuDt = torch.autograd.grad(torch.sum(u), t, retain_graph=True,create_graph=True)[0]
 
@@ -340,7 +341,7 @@ if __name__ == '__main__':
 
 
 
-    r = 0.05
+    r = 0
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
@@ -399,7 +400,7 @@ if __name__ == '__main__':
 
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
-        r = 0.05
+        r = 0
         sigma = 0.4
         K = 1
         T = 1
@@ -455,7 +456,7 @@ if __name__ == '__main__':
     plt.title(r'Path of exact $V(S_t,t)$ and learned $\hat{V}(S_t,t)$')
     plt.legend()
 
-    plt.savefig("figures/path plot 1d.png", dpi=500)
+    # plt.savefig("figures/path plot 1d.png", dpi=500)
     plt.show()
 
 #%%
@@ -502,7 +503,7 @@ if __name__ == '__main__':
     ax3.set_xlabel('Time ($t$)')
     ax3.set_ylabel('Price ($S_t$)')
     # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
-    plt.savefig("figures/price surface 1d.png", dpi=500)
+    # plt.savefig("figures/price surface 1d.png", dpi=500)
     plt.show()
 
     # Fourth subplot for Percentage Error surface

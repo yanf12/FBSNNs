@@ -126,7 +126,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2 *0
 
 
         return  res # M x 1
@@ -286,7 +286,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
             # Print
-            if it % 5000 == 0:
+            if it % 500 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -334,18 +334,18 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 5 # number of trajectories (batch size)
-    N = 200 # number of time snapshots
+    N = 4 # number of time snapshots
 
     learning_rate = 2.0*1e-3
-    epoch = 1000
+    epoch = 3000
 
 
 
-    r = 0.05
+    r = 0.00
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 100 # weight for BC
+    lambda_ = 1000 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 

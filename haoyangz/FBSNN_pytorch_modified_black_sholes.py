@@ -67,8 +67,8 @@ class neural_net(nn.Module):
     def forward(self, state, train=False):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
-        # state = self.activation(self.fc_3(state))
-        # state = self.activation(self.fc_4(state))
+        state = self.activation(self.fc_3(state))
+        state = self.activation(self.fc_4(state))
         # state = self.activation(self.fc_5(state))
         # state = self.activation(self.fc_6(state))
         # state = self.activation(self.fc_7(state))
@@ -123,6 +123,10 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         elif type_ == "put":
             p = K * np.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
             return p
+
+
+
+
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
@@ -331,20 +335,20 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 10 # number of trajectories (batch size)
-    N = 4 # number of time snapshots
+    M = 5 # number of trajectories (batch size)
+    N = 8 # number of time snapshots
 
-    learning_rate = 2.0*1e-3
-    epoch = 5000
-
-
+    learning_rate = 3.0*1e-3
+    epoch = 3000
 
 
-    r = 0.05
+
+
+    r = 0.00
     K = 1.0
-    sigma = 0.4
+    sigma = 0.1
     D = 1  # number of dimensions
-    lambda_ = 100 # weight for BC
+    lambda_ = 10 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -353,8 +357,8 @@ if __name__ == '__main__':
 
 
     if D==1:
-        Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
-        # Xi = torch.ones([M,1])
+        #Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
+        Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0

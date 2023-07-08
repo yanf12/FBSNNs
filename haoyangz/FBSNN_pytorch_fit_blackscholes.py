@@ -67,14 +67,14 @@ class neural_net(nn.Module):
     def forward(self, state, train=False):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
-        state = self.activation(self.fc_3(state))
-        state = self.activation(self.fc_4(state))
-        state = self.activation(self.fc_5(state))
-        state = self.activation(self.fc_6(state))
-        state = self.activation(self.fc_7(state))
-        state = self.activation(self.fc_8(state))
-        state = self.activation(self.fc_9(state))
-        state = self.activation(self.fc_10(state))
+        #state = self.activation(self.fc_3(state))
+        #state = self.activation(self.fc_4(state))
+        # state = self.activation(self.fc_5(state))
+        # state = self.activation(self.fc_6(state))
+        # state = self.activation(self.fc_7(state))
+        # state = self.activation(self.fc_8(state))
+        # state = self.activation(self.fc_9(state))
+        # state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
 
@@ -111,22 +111,28 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         if T == 0:
             if type_ == "call":
-                return max(S0 - K, 0)
+                a = max(S0 - K, 0)
+                aa = torch.tensor(a, dtype=torch.float32)
+                aa.requires_grad = True
+                return aa
             else:
                 return max(K - S0, 0)
         # 求BSM模型下的欧式期权的理论定价
         d1 = ((np.log(S0 / K) + (r + 0.5 * sigma ** 2) * T)) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
+        print("aaa")
         if type_ == "call":
             c = S0 * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-            return c
+            cc = torch.tensor(c, dtype=torch.float32)
+            cc.requires_grad = True
+            return cc
         elif type_ == "put":
             p = K * np.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
             return p
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2*0
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2 * 0
         return  res # M x 1
 
     def g_torch(self, X,K):  # M x D
@@ -135,7 +141,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         return torch.clamp(row_max - K, min=0).unsqueeze(1)  # M x 1
     def mu_torch(self, r,t, X, Y):  # 1x1, M x 1, M x D, M x 1, M x D
-        return 0*torch.ones([self.M, self.D])  # M x D
+        return self.r*torch.ones([self.M, self.D])  # M x D
 
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
         # print("sigma_torch")
@@ -153,7 +159,6 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         DuDx = torch.autograd.grad(torch.sum(u), X, retain_graph=True,create_graph=True)[0]
 
         # print(DuDx.shape)
-        # print(DuDx)
 
         DuDt = torch.autograd.grad(torch.sum(u), t, retain_graph=True,create_graph=True)[0]
 
@@ -205,6 +210,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         for n in range(0, self.N):
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
+            # print(t1)
+            # print(t1[0,0])
 
             #
             # print("t1-t0")
@@ -223,15 +230,15 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             elif self.gbm_scheme ==1:
                 X1 = X0*torch.exp( (self.r-0.5*self.sigma**2)*(t1-t0) + self.sigma* (W1-W0))
 
-            # print(X1.shape)
 
             t1.requires_grad = True
-            Y1, DuDx1,DuDt1,D2uDx21 = self.net_u_Du(t1, X1)  # M x 1, M x D
+
 
             Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, DuDx0,DuDt0,D2uDx20) * (t1 - t0) + DuDx0 * self.sigma*X0*(W1-W0)
 
+            Y1, DuDx1,DuDt1,D2uDx21 = self.net_u_Du(t1, X1)  # M x 1, M x D
+            loss += torch.sum((self.theoretical_vanilla_eu(S0 = X1,K=self.K,T = T-t1,r = self.r,sigma = self.sigma) - Y1) ** 2)
 
-            loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
             total_weight +=1
 
             t0 = t1
@@ -245,7 +252,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-        loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
+        # loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
         total_weight += self.lambda_
         loss = loss/total_weight
         #loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
@@ -332,20 +339,20 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 10 # number of trajectories (batch size)
-    N = 4 # number of time snapshots
+    M = 5 # number of trajectories (batch size)
+    N = 8 # number of time snapshots
 
-    learning_rate = 2.0*1e-3
-    epoch = 5000
-
-
+    learning_rate = 3.0*1e-3
+    epoch = 3
 
 
-    r = 0
+
+
+    r = 0.05
     K = 1.0
-    sigma = 0.4
+    sigma = 0.1
     D = 1  # number of dimensions
-    lambda_ = 100 # weight for BC
+    lambda_ = 0 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -370,7 +377,7 @@ if __name__ == '__main__':
 
 
 
-    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0, sigma=0.4, type_='call'):
+    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
         '''
         :param S0: 股票当前价格
         :param K: 行权价格
@@ -400,7 +407,7 @@ if __name__ == '__main__':
 
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
-        r = 0
+        r = 0.05
         sigma = 0.4
         K = 1
         T = 1
@@ -456,7 +463,7 @@ if __name__ == '__main__':
     plt.title(r'Path of exact $V(S_t,t)$ and learned $\hat{V}(S_t,t)$')
     plt.legend()
 
-    # plt.savefig("figures/path plot 1d.png", dpi=500)
+    plt.savefig("figures/path plot 1d.png", dpi=500)
     plt.show()
 
 #%%
@@ -503,7 +510,7 @@ if __name__ == '__main__':
     ax3.set_xlabel('Time ($t$)')
     ax3.set_ylabel('Price ($S_t$)')
     # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
-    # plt.savefig("figures/price surface 1d.png", dpi=500)
+    plt.savefig("figures/price surface 1d.png", dpi=500)
     plt.show()
 
     # Fourth subplot for Percentage Error surface

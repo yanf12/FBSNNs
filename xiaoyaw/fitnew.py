@@ -11,23 +11,6 @@ from scipy.stats import norm
 from IPython.display import display, clear_output
 from torch.distributions.normal import Normal
 
-def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
-
-    if T == 0:
-        if type_ == "call":
-            return max(S0 - K, 0)
-        else:
-            return max(K - S0, 0)
-    # 求BSM模型下的欧式期权的理论定价
-    d1 = ((np.log(S0 / K) + (r + 0.5 * sigma ** 2) * T)) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    if type_ == "call":
-        c = S0 * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-        return c
-    elif type_ == "put":
-        p = K * np.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
-        return p
-
 
 # 1D black sholes
 
@@ -52,7 +35,7 @@ class neural_net(nn.Module):
         self.prelu = nn.PReLU()
         self.tanh = nn.Tanh()
 
-        self.activation =  self.relu
+        self.activation = torch.sin
 
         with torch.no_grad():
             torch.nn.init.xavier_uniform(self.fc_1.weight)
@@ -70,13 +53,13 @@ class neural_net(nn.Module):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
         state = self.activation(self.fc_3(state))
-        state = self.activation(self.fc_4(state))
-        state = self.activation(self.fc_5(state))
-        state = self.activation(self.fc_6(state))
-        state = self.activation(self.fc_7(state))
-        state = self.activation(self.fc_8(state))
-        state = self.activation(self.fc_9(state))
-        state = self.activation(self.fc_10(state))
+        #state = self.activation(self.fc_4(state))
+        # state = self.activation(self.fc_5(state))
+        # state = self.activation(self.fc_6(state))
+        # state = self.activation(self.fc_7(state))
+        # state = self.activation(self.fc_8(state))
+        # state = self.activation(self.fc_9(state))
+        # state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
 
@@ -283,8 +266,6 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-
-
         # loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
         total_weight += self.lambda_
         loss = loss/total_weight
@@ -376,23 +357,25 @@ if __name__ == '__main__':
     N = 10 # number of time snapshots
 
     learning_rate = 3.0*1e-3
-    epoch = 5000
+    epoch = 10000
+
+
 
 
     r = 0.05
-    K = 100.0
+    K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
     lambda_ = 0 # weight for BC
     out_of_sample_test_t = 0
-    out_of_sample_test_S = 100
+    out_of_sample_test_S = 1
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
     gbm_scheme = 1 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:
-        Xi = torch.tensor([np.linspace(50,150,M)]).transpose(-1,-2).float()
+        Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
         # Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
@@ -440,7 +423,7 @@ if __name__ == '__main__':
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
         r = 0.05
         sigma = 0.4
-        K = 100
+        K = 1
         T = 1
         res = np.zeros([t.shape[0], X.shape[1]])
         for i in range(t.shape[0]):
@@ -458,8 +441,8 @@ if __name__ == '__main__':
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(test_sample_list[10:], label='NN output price')
-    plt.plot(np.ones(len(test_sample_list))[10:]*test_sample_exact, label='test sample exact price')
+    plt.plot(test_sample_list[1000:], label='NN output price')
+    plt.plot(np.ones(len(test_sample_list))[1000:]*test_sample_exact, label='test sample exact price')
     plt.title('Covergence of the price')
     plt.xlabel("Epochs trained")
     plt.ylabel("Price")
@@ -500,7 +483,7 @@ if __name__ == '__main__':
 #%%
     # %%
     t = np.linspace(0, 1, 10)
-    S = np.linspace(50, 150, 10)
+    S = np.linspace(0, 2, 10)
 
     t_mesh, S_mesh = np.meshgrid(t, S)
 
@@ -509,8 +492,8 @@ if __name__ == '__main__':
     for i in range(10):
         for j in range(10):
             NN_price_surface[i, j] = model.fn_u(torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
-            Exact_price_surface[i, j] = theoretical_vanilla_eu(S0=S_mesh[i, j], K=K, T=1 - t_mesh[i, j], r=0.05,
-                                                               sigma=sigma, type_='call')
+            Exact_price_surface[i, j] = theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j], r=0.05,
+                                                               sigma=0.4, type_='call')
     error_surface = NN_price_surface - Exact_price_surface
     # Calculate percentage error, avoiding division by zero
     percentage_error_surface = np.where(Exact_price_surface != 0, np.abs(error_surface) / Exact_price_surface * 100, 0)

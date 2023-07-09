@@ -38,7 +38,7 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate,gbm_scheme=1,out_of_sample_input = None):
+    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate,gbm_scheme=1,out_of_sample_input =None):
         super().__init__()
         self.r = r  # interest rate
         self.mu = mu  # drift rate
@@ -239,7 +239,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
             loss, X_pred, Y_pred, Y0_pred = self.loss_function(t_batch, W_batch, self.Xi)
 
-            test_sample_list.append(self.fn_u(torch.cat([torch.tensor([0.0]).float(),self.Xi[0]],dim=-1)).detach().numpy()[0])
+            test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -255,7 +255,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
                 plt.plot(np.log10(range(len(loss_list))), np.log10(loss_list))
                 plt.show()
-        return test_sample_list
+        self.test_sample_list = test_sample_list
+
+
 
     def predict(self, Xi_star, t_star, W_star):
         _, X_star, Y_star, _ = self.loss_function(t_star, W_star, Xi_star)
@@ -272,14 +274,10 @@ if __name__ == '__main__':
     sigma = [.10, .11, .12, .13, .14, .14, .13, .12, .11, .10]
     rho = 0.1  # Correlation between Brownian Motions
     T = 1  # Time to Maturity
-    N_STEPS, N_PATHS = 100, 5
+    N_STEPS, N_PATHS = 10, 5
     var_cov_mat = np.zeros((D, D))
     M = N_PATHS  # Number of paths
     N = N_STEPS  # Number of time steps
-
-
-
-
     alpha = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
 
     for i in range(D):
@@ -293,16 +291,18 @@ if __name__ == '__main__':
 
     Xi = torch.from_numpy(np.array([1.0, 1.0] * int(D / 2))[None, :]).float()
     T = 1.0
+    out_of_sample_input = torch.cat((torch.tensor([[0.0]]),Xi),dim=1)
     # print(Xi.shape)
 
 #%%
 
 
     # M=5
-    model = FBSNN(r, mu, sigma, rho,K,alpha, Xi, T, M, N, D, learning_rate,out_of_sample_input)
+    model = FBSNN(r, mu, sigma, rho,K,alpha, Xi, T, M, N, D,learning_rate,0,out_of_sample_input)
+    # model.train()
 
     # check GBM results
-    t_test, W_test = model.fetch_minibatch()
+    #t_test, W_test = model.fetch_minibatch()
 
     # loss, X, Y, Z = model.loss_function(t_test, W_test,Xi)
     # payoff = model.g_torch(X[:,-1,:]) * math.exp(-r*T)

@@ -567,3 +567,5 @@ if __name__ == '__main__':
     ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.set_title('Error surface')
     plt.show()
+
+

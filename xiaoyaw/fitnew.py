@@ -53,13 +53,13 @@ class neural_net(nn.Module):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
         state = self.activation(self.fc_3(state))
-        #state = self.activation(self.fc_4(state))
-        # state = self.activation(self.fc_5(state))
-        # state = self.activation(self.fc_6(state))
-        # state = self.activation(self.fc_7(state))
-        # state = self.activation(self.fc_8(state))
-        # state = self.activation(self.fc_9(state))
-        # state = self.activation(self.fc_10(state))
+        state = self.activation(self.fc_4(state))
+        state = self.activation(self.fc_5(state))
+        state = self.activation(self.fc_6(state))
+        state = self.activation(self.fc_7(state))
+        state = self.activation(self.fc_8(state))
+        state = self.activation(self.fc_9(state))
+        state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
 
@@ -126,7 +126,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = ResNet(in_channels=2,num_classes=1,num_layers=10)
+        self.fn_u = neural_net(self.M,n_dim=2,n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
@@ -397,11 +397,11 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 5 # number of trajectories (batch size)
-    N = 10 # number of time snapshots
+    M = 10 # number of trajectories (batch size)
+    N = 5 # number of time snapshots
 
-    learning_rate = 3.0*1e-3
-    epoch = 5000
+    learning_rate = 2.0*1e-3
+    epoch = 2500
 
 
 
@@ -410,7 +410,7 @@ if __name__ == '__main__':
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 0 # weight for BC
+    lambda_ = 100 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -485,21 +485,23 @@ if __name__ == '__main__':
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(test_sample_list[1000:], label='NN output price')
-    plt.plot(np.ones(len(test_sample_list[1000:]))*test_sample_exact, label='test sample exact price')
+    plt.plot(test_sample_list[400:], label='NN output price')
+    plt.plot(np.ones(len(test_sample_list[400:]))*test_sample_exact, label='test sample exact price')
     plt.title('Covergence of the price')
     plt.xlabel("Epochs trained")
     plt.ylabel("Price")
     plt.legend()
     plt.show()
 
+    plt.figure(figsize=[9, 6])
+    plt.plot(np.log10(model.loss_list[400:]), label='NN output loss')
+    plt.title('Convergence of the loss')
+    plt.xlabel("Epochs trained")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.show()
 
-
-
-
-
-
-#%%
+    #%%
     plt.figure()
     plt.plot(np.log10(model.loss_list), label='loss')
     plt.show()

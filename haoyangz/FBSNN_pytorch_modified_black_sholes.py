@@ -8,6 +8,7 @@ from plotting import newfig, savefig
 from torch.optim.lr_scheduler import StepLR
 from scipy.special import comb
 from scipy.stats import norm
+from common_tools import neural_networks
 from IPython.display import display, clear_output
 
 def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
@@ -50,7 +51,7 @@ class neural_net(nn.Module):
         self.relu = nn.ReLU()
         self.prelu = nn.PReLU()
         self.tanh = nn.Tanh()
-        self.activation = self.relu
+        self.activation = self.tanh
 
         with torch.no_grad():
             torch.nn.init.xavier_uniform(self.fc_1.weight)
@@ -130,7 +131,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2 * 0
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
         return  res # M x 1
 
     def g_torch(self, X,K):  # M x D
@@ -233,7 +234,6 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
             Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, DuDx0,DuDt0,D2uDx20) * (t1 - t0) + DuDx0 * self.sigma*X0*(W1-W0)
 
-
             loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
             total_weight +=1
 
@@ -268,6 +268,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         test_sample_list = []
 
         t_mesh, S_mesh = np.meshgrid(t, S)
+
+        mse_list = []
+        mae_list = []
         for it in range(N_Iter):
 
 
@@ -281,14 +284,23 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             loss_list.append(loss.detach().numpy()[0])
 
             test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
+            NN_price_surface = np.zeros([10, 10])
+            Exact_price_surface = np.zeros([10, 10])
+            for i in range(10):
+                for j in range(10):
+                    NN_price_surface[i, j] = model.fn_u(
+                        torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
+                    Exact_price_surface[i, j] = self.theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j],
+                                                                            r=0.05, sigma=0.4, type_='call')
 
-
-
-
-
-
+            Error_measure = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
+            mse = Error_measure.calculate_mse()
+            mae = Error_measure.calculate_mae()
+            mape = Error_measure.calculate_mape()
+            mse_list.append(mse)
+            mae_list.append(mae)
             # Print
-            if it % 5000 == 0:
+            if it % 500 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -297,15 +309,13 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 plt.plot(np.log10(range(len(loss_list))),np.log10(loss_list))
                 plt.show()
 
-                NN_price_surface = np.zeros([10, 10])
-                Exact_price_surface = np.zeros([10, 10])
-                for i in range(10):
-                    for j in range(10):
-                        NN_price_surface[i, j] = model.fn_u(
-                            torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
-                        Exact_price_surface[i,j] = self.theoretical_vanilla_eu(S0=S_mesh[i,j], K=1, T=1-t_mesh[i,j], r=0.05, sigma=0.4, type_='call')
+
                 error_surface = np.abs(NN_price_surface - Exact_price_surface)
                 # error_list.append(np.max(error_surface))
+
+
+
+
                 ax = plt.figure()
                 ax = plt.axes(projection='3d')
                 ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis',
@@ -324,6 +334,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         self.loss_list = loss_list
         self.test_sample_list = test_sample_list
+        self.mse_list = mse_list
+        self.mae_list = mae_list
 
 
 
@@ -336,17 +348,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 5 # number of trajectories (batch size)
-    N = 8 # number of time snapshots
+    N = 5 # number of time snapshots
 
-    learning_rate = 3.0*1e-3
-    epoch = 3000
-
-
+    learning_rate = 2.0*1e-3
+    epoch = 1000
 
 
-    r = 0.00
+
+
+    r = 0.05
     K = 1.0
-    sigma = 0.1
+    sigma = 0.4
     D = 1  # number of dimensions
     lambda_ = 10 # weight for BC
     out_of_sample_test_t = 0
@@ -357,8 +369,8 @@ if __name__ == '__main__':
 
 
     if D==1:
-        #Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
-        Xi = torch.ones([M,1])
+        Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
+        #Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
@@ -532,3 +544,20 @@ if __name__ == '__main__':
     ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.set_title('Error surface')
     plt.show()
+
+#%%
+    mse_list = model.mse_list
+    mae_list = model.mae_list
+    plt.plot(mse_list, label='mse')
+    plt.plot(mae_list, label='mae')
+    plt.legend()
+    plt.show()
+
+    #%%
+    from common_tools import neural_networks
+
+    Error_measure = neural_networks.errormeasure(Exact_price_surface,NN_price_surface)
+
+    mse = Error_measure.calculate_mse()
+    mae = Error_measure.calculate_mae()
+    mape = Error_measure.calculate_mape()

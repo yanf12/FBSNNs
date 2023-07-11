@@ -51,7 +51,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
         # self.fn_u = neural_networks.ResNet(in_channels=2, num_classes=1, num_layers=20)
-        self.fn_u = neural_networks.neural_net(self.M,n_dim=2,n_output=1,num_layers=12)
+        self.fn_u = neural_networks.neural_net(self.M,n_dim=2,n_output=1,num_layers=10)
 
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
@@ -289,7 +289,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 10 # number of trajectories (batch size)
-    N = 8 # number of time snapshots
+    N = 5 # number of time snapshots
 
     learning_rate = 2.0*1e-3
     epoch = 2500
@@ -301,7 +301,7 @@ if __name__ == '__main__':
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 100 # weight for BC
+    lambda_ = 1000 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -392,7 +392,7 @@ if __name__ == '__main__':
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(np.log10(model.loss_list[400:]), label='loss')
+    plt.plot(np.log10(model.loss_list[400:]), label='NN output loss')
     plt.title('Convergence of the loss')
     plt.xlabel("Epochs trained")
     plt.ylabel("Loss")
@@ -493,10 +493,9 @@ if __name__ == '__main__':
 
 
 #error measure
-    true_values = test_sample_exact
-    predicted_values = np.array(test_sample_list[-1])
 
-    metrics = neural_networks.errormeasure(true_values, predicted_values)
+
+    metrics = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
     mse = metrics.calculate_mse()
     mape = metrics.calculate_mape()
     mae = metrics.calculate_mae()

@@ -9,6 +9,8 @@ from torch.optim.lr_scheduler import StepLR
 from scipy.special import comb
 from scipy.stats import norm
 from IPython.display import display, clear_output
+from common_tools import neural_networks
+
 
 def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
 
@@ -30,54 +32,6 @@ def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
 
 # 1D black sholes
 
-class neural_net(nn.Module):
-    def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1):
-        super(neural_net, self).__init__()
-        self.pathbatch = pathbatch
-        self.fc_1 = nn.Linear(n_dim, 256)
-        self.fc_2 = nn.Linear(256, 256)
-        self.fc_3 = nn.Linear(256, 256)
-        self.fc_4 = nn.Linear(256, 256)
-        self.fc_5 = nn.Linear(256,256)
-        self.fc_6 = nn.Linear(256,256)
-        self.fc_7 = nn.Linear(256,256)
-        self.fc_8 = nn.Linear(256,256)
-        self.fc_9 = nn.Linear(256,256)
-        self.fc_10 = nn.Linear(256,256)
-
-        self.out = nn.Linear(256, n_output)
-
-        self.relu = nn.ReLU()
-        self.prelu = nn.PReLU()
-        self.tanh = nn.Tanh()
-        self.activation = self.relu
-
-        with torch.no_grad():
-            torch.nn.init.xavier_uniform(self.fc_1.weight)
-            torch.nn.init.xavier_uniform(self.fc_2.weight)
-            torch.nn.init.xavier_uniform(self.fc_3.weight)
-            torch.nn.init.xavier_uniform(self.fc_4.weight)
-            torch.nn.init.xavier_uniform(self.fc_5.weight)
-            torch.nn.init.xavier_uniform(self.fc_6.weight)
-            torch.nn.init.xavier_uniform(self.fc_7.weight)
-            torch.nn.init.xavier_uniform(self.fc_8.weight)
-            torch.nn.init.xavier_uniform(self.fc_9.weight)
-            torch.nn.init.xavier_uniform(self.fc_10.weight)
-
-    def forward(self, state, train=False):
-        state = self.activation(self.fc_1(state))
-        state = self.activation(self.fc_2(state))
-        state = self.activation(self.fc_3(state))
-        state = self.activation(self.fc_4(state))
-        state = self.activation(self.fc_5(state))
-        state = self.activation(self.fc_6(state))
-        state = self.activation(self.fc_7(state))
-        state = self.activation(self.fc_8(state))
-        state = self.activation(self.fc_9(state))
-        state = self.activation(self.fc_10(state))
-        fn_u = self.out(state)
-        return fn_u
-
 
 
 
@@ -85,7 +39,7 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input):
+    def __init__(self, r, K, sigma, Xi, T, M, N, D, learning_rate, gbm_scheme, lambda_, out_of_sample_input):
         super().__init__()
         self.r = r  # interest rate
         self.sigma = sigma # volatility
@@ -96,7 +50,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
+        # self.fn_u = neural_networks.ResNet(in_channels=2, num_classes=1, num_layers=20)
+        self.fn_u = neural_networks.neural_net(self.M,n_dim=2,n_output=1,num_layers=10)
+
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
@@ -126,8 +82,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2*0
-        return  res # M x 1
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
+        return res # M x 1
 
     def g_torch(self, X,K):  # M x D
 
@@ -144,7 +100,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
     def net_u_Du(self, t, X):  # M x 1, M x D
 
-        inputs = torch.cat([t, X], dim=1)
+        inputs = torch.cat([t,X], dim=1)
 
         u = self.fn_u(inputs)
 
@@ -285,7 +241,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
             # Print
-            if it % 5000 == 0:
+            if it % 100 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -333,19 +289,19 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 10 # number of trajectories (batch size)
-    N = 4 # number of time snapshots
+    N = 5 # number of time snapshots
 
     learning_rate = 2.0*1e-3
-    epoch = 5000
+    epoch = 2500
 
 
 
 
-    r = 0
+    r = 0.05
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 100 # weight for BC
+    lambda_ = 1000 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -360,7 +316,7 @@ if __name__ == '__main__':
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
     T = 1.0
 
-    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
+    model = FBSNN(r, K, sigma, Xi, T, M, N, D, learning_rate, gbm_scheme=1, lambda_=lambda_, out_of_sample_input=out_of_sample_input)
 
     model.train(N_Iter=epoch)
 
@@ -370,7 +326,7 @@ if __name__ == '__main__':
 
 
 
-    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0, sigma=0.4, type_='call'):
+    def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
         '''
         :param S0: 股票当前价格
         :param K: 行权价格
@@ -396,11 +352,11 @@ if __name__ == '__main__':
 
             return p
 
-    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S,K,T-out_of_sample_test_t,r,sigma)
+    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S, K, T-out_of_sample_test_t, r, sigma)
 
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
-        r = 0
+        r = 0.05
         sigma = 0.4
         K = 1
         T = 1
@@ -408,7 +364,7 @@ if __name__ == '__main__':
         for i in range(t.shape[0]):
             for j in range(X.shape[1]):
                 res[i, j] = theoretical_vanilla_eu(S0=X[i, j], K=K, T=T-t[i, 0], r=r, sigma=sigma, type_='call')
-        return   res
+        return res
 
 
     t_test = t_test.detach().numpy()
@@ -435,8 +391,12 @@ if __name__ == '__main__':
 
 
 #%%
-    plt.figure()
-    plt.plot(np.log10(model.loss_list), label='loss')
+    plt.figure(figsize=[9,6])
+    plt.plot(np.log10(model.loss_list[400:]), label='NN output loss')
+    plt.title('Convergence of the loss')
+    plt.xlabel("Epochs trained")
+    plt.ylabel("Loss")
+    plt.legend()
     plt.show()
 
 
@@ -529,3 +489,18 @@ if __name__ == '__main__':
     ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.set_title('Error surface')
     plt.show()
+
+
+
+#error measure
+
+
+    metrics = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
+    mse = metrics.calculate_mse()
+    mape = metrics.calculate_mape()
+    mae = metrics.calculate_mae()
+    print("MSE:",mse)
+    print("MAPE:",mape)
+    print("MAE:",mae)
+
+

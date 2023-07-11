@@ -53,15 +53,60 @@ class neural_net(nn.Module):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
         state = self.activation(self.fc_3(state))
-        #state = self.activation(self.fc_4(state))
-        # state = self.activation(self.fc_5(state))
-        # state = self.activation(self.fc_6(state))
-        # state = self.activation(self.fc_7(state))
-        # state = self.activation(self.fc_8(state))
-        # state = self.activation(self.fc_9(state))
-        # state = self.activation(self.fc_10(state))
+        state = self.activation(self.fc_4(state))
+        state = self.activation(self.fc_5(state))
+        state = self.activation(self.fc_6(state))
+        state = self.activation(self.fc_7(state))
+        state = self.activation(self.fc_8(state))
+        state = self.activation(self.fc_9(state))
+        state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
+
+
+import torch
+import torch.nn as nn
+
+import torch
+import torch.nn as nn
+
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock, self).__init__()
+        self.fc1 = nn.Linear(in_channels, out_channels)
+        self.fc2 = nn.Linear(out_channels, out_channels)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.fc1(x))
+        out = self.fc2(out)
+        out += residual
+        out = self.relu(out)
+        return out
+
+class ResNet(nn.Module):
+    def __init__(self, in_channels, num_classes, num_layers):
+        super(ResNet, self).__init__()
+        self.fc1 = nn.Linear(in_channels, 64)
+        self.relu = nn.ReLU()
+
+        self.resblocks = nn.ModuleList()
+        for _ in range(num_layers):
+            self.resblocks.append(ResBlock(64, 64))
+
+        self.fc2 = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+
+        for resblock in self.resblocks:
+            x = resblock(x)
+
+        x = self.fc2(x)
+        return x
+
+
 
 
 
@@ -81,7 +126,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
+        self.fn_u = neural_net(self.M,n_dim=2,n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
@@ -96,11 +141,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         if T == 0:
             if type_ == "call":
                 a = torch.clamp(S0 - K, 0)
-
                 return a
             else:
                 b = torch.clamp(K - S0, 0)
-
                 return b
         # 求BSM模型下的欧式期权的理论定价
         d1 = ((torch.log(torch.tensor(S0 / K)) + (r + 0.5 * sigma ** 2) * T)) / (sigma * torch.sqrt(torch.tensor(T)))
@@ -305,6 +348,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 
+
             # Print
             if it % 2000 == 0:
                 clear_output(wait=True)
@@ -353,11 +397,11 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 5 # number of trajectories (batch size)
-    N = 10 # number of time snapshots
+    M = 10 # number of trajectories (batch size)
+    N = 5 # number of time snapshots
 
-    learning_rate = 3.0*1e-3
-    epoch = 10000
+    learning_rate = 2.0*1e-3
+    epoch = 2500
 
 
 
@@ -366,7 +410,7 @@ if __name__ == '__main__':
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 0 # weight for BC
+    lambda_ = 100 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
@@ -441,21 +485,23 @@ if __name__ == '__main__':
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(test_sample_list[1000:], label='NN output price')
-    plt.plot(np.ones(len(test_sample_list))[1000:]*test_sample_exact, label='test sample exact price')
+    plt.plot(test_sample_list[400:], label='NN output price')
+    plt.plot(np.ones(len(test_sample_list[400:]))*test_sample_exact, label='test sample exact price')
     plt.title('Covergence of the price')
     plt.xlabel("Epochs trained")
     plt.ylabel("Price")
     plt.legend()
     plt.show()
 
+    plt.figure(figsize=[9, 6])
+    plt.plot(np.log10(model.loss_list[400:]), label='NN output loss')
+    plt.title('Convergence of the loss')
+    plt.xlabel("Epochs trained")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.show()
 
-
-
-
-
-
-#%%
+    #%%
     plt.figure()
     plt.plot(np.log10(model.loss_list), label='loss')
     plt.show()
@@ -477,7 +523,7 @@ if __name__ == '__main__':
     plt.title(r'Path of exact $V(S_t,t)$ and learned $\hat{V}(S_t,t)$')
     plt.legend()
 
-    plt.savefig("figures/path plot 1d.png", dpi=500)
+    # plt.savefig("figures/path plot 1d.png", dpi=500)
     plt.show()
 
 #%%
@@ -524,7 +570,7 @@ if __name__ == '__main__':
     ax3.set_xlabel('Time ($t$)')
     ax3.set_ylabel('Price ($S_t$)')
     # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
-    plt.savefig("figures/price surface 1d.png", dpi=500)
+    # plt.savefig("figures/price surface 1d.png", dpi=500)
     plt.show()
 
     # Fourth subplot for Percentage Error surface
@@ -550,3 +596,5 @@ if __name__ == '__main__':
     ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
     ax.set_title('Error surface')
     plt.show()
+
+

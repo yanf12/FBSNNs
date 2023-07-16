@@ -1,6 +1,3 @@
-
-
-
 import torch
 import torch.nn as nn
 
@@ -20,18 +17,16 @@ class ResBlock(nn.Module):
         return out
 
 class ResNet(nn.Module):
-    def __init__(self, in_channels, num_classes, num_layers, width):
+    def __init__(self, in_channels, num_classes, num_layers):
         super(ResNet, self).__init__()
-        self.width = width
-        self.fc1 = nn.Linear(in_channels, self.width)
+        self.fc1 = nn.Linear(in_channels, 64)
         self.relu = nn.ReLU()
-
 
         self.resblocks = nn.ModuleList()
         for _ in range(num_layers):
-            self.resblocks.append(ResBlock(self.width, self.width))
+            self.resblocks.append(ResBlock(64, 64))
 
-        self.fc2 = nn.Linear(self.width, num_classes)
+        self.fc2 = nn.Linear(64, num_classes)
 
     def forward(self, x):
         x = self.relu(self.fc1(x))
@@ -44,19 +39,18 @@ class ResNet(nn.Module):
 
 
 class neural_net(nn.Module):
-    def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1, num_layers=3, width=256):
+    def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1, num_layers=3):
         super(neural_net, self).__init__()
         self.pathbatch = pathbatch
         self.num_layers = num_layers
-        self.width = width
 
         self.fc_layers = nn.ModuleList()
-        self.fc_layers.append(nn.Linear(n_dim, self.width))
+        self.fc_layers.append(nn.Linear(n_dim, 512))
         for _ in range(num_layers - 1):
-            self.fc_layers.append(nn.Linear(self.width, self.width))
-        self.out = nn.Linear(self.width, n_output)
+            self.fc_layers.append(nn.Linear(512, 512))
+        self.out = nn.Linear(512, n_output)
 
-        self.activation = torch.sin
+        self.activation = torch.tanh
 
         with torch.no_grad():
             for layer in self.fc_layers:

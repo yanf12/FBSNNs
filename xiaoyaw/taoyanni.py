@@ -10,6 +10,7 @@ from scipy.special import comb
 from scipy.stats import norm
 from IPython.display import display, clear_output
 from common_tools import neural_networks
+from common_tools import width
 
 
 def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
@@ -51,7 +52,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
         # self.fn_u = neural_networks.ResNet(in_channels=2, num_classes=1, num_layers=20)
-        self.fn_u = neural_networks.neural_net(self.M,n_dim=2,n_output=1,num_layers=10)
+        self.fn_u = width.neural_net(self.M,n_dim=2,n_output=1,num_layers=3)
 
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
@@ -289,7 +290,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 if __name__ == '__main__':
     M = 10 # number of trajectories (batch size)
-    N = 5 # number of time snapshots
+    N = 15 # number of time snapshots
 
     learning_rate = 2.0*1e-3
     epoch = 2500
@@ -301,12 +302,12 @@ if __name__ == '__main__':
     K = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 1000 # weight for BC
+    lambda_ = 100 # weight for BC
     out_of_sample_test_t = 0
     out_of_sample_test_S = 1
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
-    gbm_scheme = 1 # in theory 1 is more accurate. 0 is accurate for large N
+    gbm_scheme = 0 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:
@@ -499,8 +500,8 @@ if __name__ == '__main__':
     mse = metrics.calculate_mse()
     mape = metrics.calculate_mape()
     mae = metrics.calculate_mae()
-    print("MSE:",mse)
-    print("MAPE:",mape)
-    print("MAE:",mae)
+    print("MSE:", mse)
+    print("MAPE:", mape)
+    print("MAE:", mae)
 
 

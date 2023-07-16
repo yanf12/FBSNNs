@@ -7,38 +7,12 @@ import matplotlib.pyplot as plt
 import math
 from plotting import newfig, savefig
 from common_tools import basket_pricer
-
-class neural_net(nn.Module):
-    def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1):
-        super(neural_net, self).__init__()
-        self.pathbatch = pathbatch
-        self.fc_1 = nn.Linear(n_dim, 256)
-        self.fc_2 = nn.Linear(256, 256)
-        self.fc_3 = nn.Linear(256, 256)
-        self.fc_4 = nn.Linear(256, 256)
-        self.out = nn.Linear(256, n_output)
-
-        self.relu = nn.ReLU()
-        self.prelu = nn.PReLU()
-        self.tanh = nn.Tanh()
-
-        with torch.no_grad():
-            torch.nn.init.xavier_uniform(self.fc_1.weight)
-            torch.nn.init.xavier_uniform(self.fc_2.weight)
-            torch.nn.init.xavier_uniform(self.fc_3.weight)
-            torch.nn.init.xavier_uniform(self.fc_4.weight)
-
-    def forward(self, state, train=False):
-        state = torch.sin(self.fc_1(state))
-        state = torch.sin(self.fc_2(state))
-        state = torch.sin(self.fc_3(state))
-        state = torch.sin(self.fc_4(state))
-        fn_u = self.out(state)
-        return fn_u
+from common_tools import neural_networks
+from common_tools import width
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate,gbm_scheme=1,out_of_sample_input =None):
+    def __init__(self, r, mu, sigma, rho, K,alpha,Xi, T, M, N, D, learning_rate,gbm_scheme=1,out_of_sample_input =None,lambda_= 100):
         super().__init__()
         self.r = r  # interest rate
         self.mu = mu  # drift rate
@@ -52,7 +26,8 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
+        self.lambda_ = lambda_
+        self.fn_u  = neural_networks.neural_net(self.M,n_dim=D+1,n_output=1,num_layers=4,width=1024)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
         var_cov_mat = np.zeros((D, D))
@@ -206,7 +181,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                                                                                        -1)).squeeze(2)) # not sure if this is right
 
 
-            Y1_tilde = Y0 + self.phi_torch(t0, X0,DuDt0,DuDx0,D2uDx20) * (t1 - t0) + torch.sum(
+            Y1_tilde = Y0 + self.r* Y0 * (t1 - t0) + torch.sum(
                 Y0 * DuDx0* torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2), dim=1).unsqueeze(1)
 
 
@@ -249,7 +224,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             self.optimizer.step()
 
             # Print
-            if it % 500 == 0:
+            if it % 50 == 0:
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
                       (it, elapsed, loss, Y0_pred))
@@ -281,8 +256,9 @@ if __name__ == '__main__':
     mu = [0.05, 0.06, 0.07, 0.05, 0.06, 0.07, 0.05, 0.06, 0.07, 0.06]
     sigma = [.10, .11, .12, .13, .14, .14, .13, .12, .11, .10]
     rho = 0.1  # Correlation between Brownian Motions
+    lambda_ = 100
     T = 1  # Time to Maturity
-    N_STEPS, N_PATHS = 5, 5
+    N_STEPS, N_PATHS = 5, 50
     var_cov_mat = np.zeros((D, D))
     M = N_PATHS  # Number of paths
     N = N_STEPS  # Number of time steps
@@ -306,7 +282,7 @@ if __name__ == '__main__':
 
 
     # M=5
-    model = FBSNN(r, mu, sigma, rho,K,alpha, Xi, T, M, N, D,learning_rate,0,out_of_sample_input)
+    model = FBSNN(r, mu, sigma, rho,K,alpha, Xi, T, M, N, D,learning_rate,0,out_of_sample_input,lambda_=lambda_)
     # model.train()
 
     # check GBM results
@@ -322,7 +298,7 @@ if __name__ == '__main__':
 #%%
 
 
-    model.train(N_Iter=2000)
+    model.train(N_Iter=500)
 
 
     t_test, W_test = model.fetch_minibatch()
@@ -330,17 +306,14 @@ if __name__ == '__main__':
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
 #%%
     test_sample_list = model.test_sample_list
-    plt.plot(test_sample_list)
-    plt.plot(np.ones(len(test_sample_list))*0.063977)
+    plt.plot(test_sample_list[25:])
+    plt.plot(np.ones(len(test_sample_list))[25:]*0.063977)
     plt.show()
 
 
 
 
-#%%
-    def u_exact(t, X):  # (N+1) x 1, (N+1) x D
 
-        return basket_pricer.get_basket_price_mc(T = 1-t,S_0=X)  # (N+1) x 1
 
 #%%
     #surface error plot
@@ -351,11 +324,11 @@ if __name__ == '__main__':
     t_mesh, S_mesh = np.meshgrid(t, S)
     NN_price_surface = np.zeros([10, 10])
     Exact_price_surface = np.zeros([10, 10])
-    for i in range(10):
-        for j in range(10):
-            NN_price_surface[i, j] = model.fn_u(
-                torch.tensor(np.concatenate([np.array([t_mesh[i, j]]), S_mesh[i, j]*np.ones([10])])).float()).detach().numpy()
-            Exact_price_surface[i, j] = basket_pricer.get_basket_price_mc(T=1 - t_mesh[i, j], S_0=S_mesh[i, j])
+    # for i in range(10):
+    #     for j in range(10):
+    #         NN_price_surface[i, j] = model.fn_u(
+    #             torch.tensor(np.concatenate([np.array([t_mesh[i, j]]), S_mesh[i, j]*np.ones([10])])).float()).detach().numpy()
+    #         Exact_price_surface[i, j] = basket_pricer.get_basket_price_mc(T=1 - t_mesh[i, j], S_0=S_mesh[i, j])
 #%%
     ax = plt.figure()
     ax = plt.axes(projection='3d')
@@ -377,13 +350,25 @@ if __name__ == '__main__':
 
 
 #%%
+
+    # %%
+    def u_exact(t, X):  # (N+1) x 1, (N+1) x D
+        Y_exact = np.zeros(t.shape)
+        for i in range(t.shape[0]):
+            t_ = t[i,:][0]
+            X_ = X[i,:]
+            Y_exact[i,:] = basket_pricer.get_basket_price_mc_flex_S0(S_0=X_,T=1-t_)
+
+        return Y_exact  # (N+1) x 1
+
+
     t_test = t_test.detach().numpy()
     X_pred = X_pred.detach().numpy()
     Y_pred = Y_pred.detach().numpy()
     Y_test = np.reshape(u_exact(np.reshape(t_test[0:M, :, :], [-1, 1]), np.reshape(X_pred[0:M, :, :], [-1, D])),
                         [M, -1, 1])
     print(Y_test[0, 0, 0])
-
+    #
     samples = 5
 
     # %%
@@ -406,16 +391,19 @@ if __name__ == '__main__':
     # savefig('BSB.png', crop=False)
     plt.show()
 
-    errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
-    mean_errors = np.mean(errors, 0)
-    std_errors = np.std(errors, 0)
+    #errors = np.sqrt((Y_test - Y_pred) ** 2 / Y_test ** 2)
+    # mean_errors = np.mean(errors, 0)
+    # std_errors = np.std(errors, 0)
+    #
+    # plt.figure()
+    # plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
+    # plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
+    # plt.xlabel(r'$t$')
+    # plt.ylabel('relative error')
+    #
+    # plt.title('100-dimensional Black-Scholes-Barenblatt')
+    # plt.legend()
+    # plt.show()
 
-    plt.figure()
-    plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
-    plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
-    plt.xlabel(r'$t$')
-    plt.ylabel('relative error')
-    plt.title('100-dimensional Black-Scholes-Barenblatt')
-    plt.legend()
 
     # savefig('BSB_error.png', crop=False)

@@ -8,34 +8,51 @@ from plotting import newfig, savefig
 from torch.optim.lr_scheduler import StepLR
 from scipy.special import comb
 from scipy.stats import norm
-from IPython.display import display, clear_output
-from torch.distributions.normal import Normal
 from common_tools import neural_networks
+from IPython.display import display, clear_output
+
+def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
+
+    if T == 0:
+        if type_ == "call":
+            return max(S0 - K, 0)
+        else:
+            return max(K - S0, 0)
+    # 求BSM模型下的欧式期权的理论定价
+    d1 = ((np.log(S0 / K) + (r + 0.5 * sigma ** 2) * T)) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    if type_ == "call":
+        c = S0 * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        return c
+    elif type_ == "put":
+        p = K * np.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
+        return p
+
 
 # 1D black sholes
 
 class neural_net(nn.Module):
     def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1):
         super(neural_net, self).__init__()
+        self.width = 1024*2
         self.pathbatch = pathbatch
-        self.fc_1 = nn.Linear(n_dim, 256)
-        self.fc_2 = nn.Linear(256, 256)
-        self.fc_3 = nn.Linear(256, 256)
-        self.fc_4 = nn.Linear(256, 256)
-        self.fc_5 = nn.Linear(256,256)
-        self.fc_6 = nn.Linear(256,256)
-        self.fc_7 = nn.Linear(256,256)
-        self.fc_8 = nn.Linear(256,256)
-        self.fc_9 = nn.Linear(256,256)
-        self.fc_10 = nn.Linear(256,256)
+        self.fc_1 = nn.Linear(n_dim, self.width)
+        self.fc_2 = nn.Linear(self.width, self.width)
+        self.fc_3 = nn.Linear(self.width, self.width)
+        self.fc_4 = nn.Linear (self.width, self.width)
+        self.fc_5 = nn.Linear(self.width,self.width)
+        self.fc_6 = nn.Linear(self.width,self.width)
+        self.fc_7 = nn.Linear(self.width,self.width)
+        self.fc_8 = nn.Linear(self.width,self.width)
+        self.fc_9 = nn.Linear(self.width,self.width)
+        self.fc_10 = nn.Linear(self.width,self.width)
 
-        self.out = nn.Linear(256, n_output)
+        self.out = nn.Linear(self.width, n_output)
 
         self.relu = nn.ReLU()
         self.prelu = nn.PReLU()
         self.tanh = nn.Tanh()
-
-        self.activation = torch.sin
+        self.activation = self.relu
 
         with torch.no_grad():
             torch.nn.init.xavier_uniform(self.fc_1.weight)
@@ -52,61 +69,16 @@ class neural_net(nn.Module):
     def forward(self, state, train=False):
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
-        state = self.activation(self.fc_3(state))
-        state = self.activation(self.fc_4(state))
-        state = self.activation(self.fc_5(state))
-        state = self.activation(self.fc_6(state))
-        state = self.activation(self.fc_7(state))
-        state = self.activation(self.fc_8(state))
-        state = self.activation(self.fc_9(state))
-        state = self.activation(self.fc_10(state))
+        # state = self.activation(self.fc_3(state))
+        #state = self.activation(self.fc_4(state))
+        #state = self.activation(self.fc_5(state))
+        # state = self.activation(self.fc_6(state))
+        # state = self.activation(self.fc_7(state))
+        # state = self.activation(self.fc_8(state))
+        # state = self.activation(self.fc_9(state))
+        # state = self.activation(self.fc_10(state))
         fn_u = self.out(state)
         return fn_u
-
-
-import torch
-import torch.nn as nn
-
-import torch
-import torch.nn as nn
-
-class ResBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResBlock, self).__init__()
-        self.fc1 = nn.Linear(in_channels, out_channels)
-        self.fc2 = nn.Linear(out_channels, out_channels)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        residual = x
-        out = self.relu(self.fc1(x))
-        out = self.fc2(out)
-        out += residual
-        out = self.relu(out)
-        return out
-
-class ResNet(nn.Module):
-    def __init__(self, in_channels, num_classes, num_layers):
-        super(ResNet, self).__init__()
-        self.fc1 = nn.Linear(in_channels, 64)
-        self.relu = nn.ReLU()
-
-        self.resblocks = nn.ModuleList()
-        for _ in range(num_layers):
-            self.resblocks.append(ResBlock(64, 64))
-
-        self.fc2 = nn.Linear(64, num_classes)
-
-    def forward(self, x):
-        x = self.relu(self.fc1(x))
-
-        for resblock in self.resblocks:
-            x = resblock(x)
-
-        x = self.fc2(x)
-        return x
-
-
 
 
 
@@ -115,7 +87,7 @@ class ResNet(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input):
+    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input,out_of_sample_exact):
         super().__init__()
         self.r = r  # interest rate
         self.sigma = sigma # volatility
@@ -126,39 +98,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = neural_net(self.M,n_dim=2,n_output=1)
+        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
-        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
+        self.scheduler = StepLR(self.optimizer, step_size=500, gamma=0.9)
 
         self.lambda_ = lambda_
 
         self.gbm_scheme = gbm_scheme # 0:euler scheme for gbm #1: EXP scheme
         self.out_of_sample_input = out_of_sample_input
+        self.out_of_sample_exact = out_of_sample_exact
 
-    def theoretical_vanilla_eu_tensor_ver(self,S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
-
-        if T == 0:
-            if type_ == "call":
-                a = torch.clamp(S0 - K, 0)
-                return a
-            else:
-                b = torch.clamp(K - S0, 0)
-                return b
-        # 求BSM模型下的欧式期权的理论定价
-        d1 = ((torch.log(torch.tensor(S0 / K)) + (r + 0.5 * sigma ** 2) * T)) / (sigma * torch.sqrt(torch.tensor(T)))
-        d2 = d1 - sigma * torch.sqrt(torch.tensor(T))
-        m = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
-        if type_ == "call":
-            c = S0 * m.cdf(d1) - K * torch.exp(torch.tensor(-r * T)) * m.cdf(d2)
-            cc = torch.tensor(c, dtype=torch.float32)
-            cc.requires_grad = True
-            return cc
-        elif type_ == "put":
-            p = K * torch.exp(torch.tensor(-r * T)) * m.cdf(-d2) - S0 * m.cdf(-d1)
-            pp = torch.tensor(p, dtype=torch.float32)
-            pp.requires_grad = True
-            return pp
 
     def theoretical_vanilla_eu(self,S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
 
@@ -177,9 +127,13 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             p = K * np.exp(-r * T) * norm.cdf(-d2) - S0 * norm.cdf(-d1)
             return p
 
+
+
+
+
     def phi_torch(self, t, X, Y, DuDx,DuDt,D2uDx2 ):  # M x 1, M x D, M x 1, M x D
 
-        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2 * 0
+        res = DuDx*self.r*X+DuDt + 0.5*D2uDx2*X**2*self.sigma**2
         return  res # M x 1
 
     def g_torch(self, X,K):  # M x D
@@ -188,7 +142,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         return torch.clamp(row_max - K, min=0).unsqueeze(1)  # M x 1
     def mu_torch(self, r,t, X, Y):  # 1x1, M x 1, M x D, M x 1, M x D
-        return self.r*torch.ones([self.M, self.D])  # M x D
+        return 0*torch.ones([self.M, self.D])  # M x D
 
     def sigma_torch(self, t, X, Y):  # M x 1, M x D, M x 1
         # print("sigma_torch")
@@ -257,8 +211,6 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         for n in range(0, self.N):
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
-            # print(t1)
-            # print(t1[0,0])
 
             #
             # print("t1-t0")
@@ -277,25 +229,14 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             elif self.gbm_scheme ==1:
                 X1 = X0*torch.exp( (self.r-0.5*self.sigma**2)*(t1-t0) + self.sigma* (W1-W0))
 
+            # print(X1.shape)
 
             t1.requires_grad = True
-
-
-            Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, DuDx0,DuDt0,D2uDx20) * (t1 - t0) + DuDx0 * self.sigma*X0*(W1-W0)
-
             Y1, DuDx1,DuDt1,D2uDx21 = self.net_u_Du(t1, X1)  # M x 1, M x D
-            #print(self.theoretical_vanilla_eu_tensor_ver(X1.squeeze(1),K=self.K,T = T-t1[0,0],r = self.r,sigma = self.sigma))
 
-            exact_res = self.theoretical_vanilla_eu_tensor_ver(S0 = X1.squeeze(1),K=self.K,T = T-t1[0,0],r = self.r,sigma = self.sigma)
-            # print(exact_res.unsqueeze(-1))
-            # print(Y1)
+            Y1_tilde = Y0 + self.r*Y0* (t1-t0) + DuDx0 * self.sigma*X0*(W1-W0)
 
-
-
-
-            loss += torch.sum((exact_res.unsqueeze(-1)- Y1) ** 2)
-
-
+            loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
             total_weight +=1
 
             t0 = t1
@@ -309,7 +250,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-        # loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
+        loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
         total_weight += self.lambda_
         loss = loss/total_weight
         #loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
@@ -329,6 +270,9 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         test_sample_list = []
 
         t_mesh, S_mesh = np.meshgrid(t, S)
+
+        mse_list = []
+        mae_list = []
         for it in range(N_Iter):
 
 
@@ -344,13 +288,23 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
 
 
+            NN_price_surface = np.zeros([10, 10])
+            Exact_price_surface = np.zeros([10, 10])
+            for i in range(10):
+                for j in range(10):
+                    NN_price_surface[i, j] = model.fn_u(
+                        torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
+                    Exact_price_surface[i, j] = self.theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j],
+                                                                            r=0.05, sigma=0.4, type_='call')
 
-
-
-
-
+            Error_measure = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
+            mse = Error_measure.calculate_mse()
+            mae = Error_measure.calculate_mae()
+            mape = Error_measure.calculate_mape()
+            mse_list.append(mse)
+            mae_list.append(mae)
             # Print
-            if it % 2000 == 0:
+            if it % 100 == 0:
                 clear_output(wait=True)
                 elapsed = time.time() - start_time
                 print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
@@ -359,15 +313,17 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 plt.plot(np.log10(range(len(loss_list))),np.log10(loss_list))
                 plt.show()
 
-                NN_price_surface = np.zeros([10, 10])
-                Exact_price_surface = np.zeros([10, 10])
-                for i in range(10):
-                    for j in range(10):
-                        NN_price_surface[i, j] = model.fn_u(
-                            torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
-                        Exact_price_surface[i,j] = self.theoretical_vanilla_eu(S0=S_mesh[i,j], K=1, T=1-t_mesh[i,j], r=0.05, sigma=0.4, type_='call')
+                plt.plot(test_sample_list[50:])
+                plt.plot(np.ones(len(test_sample_list))[50:] * test_sample_exact, label='test sample exact price')
+                plt.show()
+
+
                 error_surface = np.abs(NN_price_surface - Exact_price_surface)
                 # error_list.append(np.max(error_surface))
+
+
+
+
                 ax = plt.figure()
                 ax = plt.axes(projection='3d')
                 ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis',
@@ -375,17 +331,19 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
                 ax.set_title('surface: iter = %d' % it)
                 plt.show()
 
-                ax = plt.figure()
-                ax = plt.axes(projection='3d')
-                ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis',
-                                edgecolor='none')
-                ax.set_title('error surface: iter = %d' % it)
-                plt.show()
+                # ax = plt.figure()
+                # ax = plt.axes(projection='3d')
+                # ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis',
+                #                 edgecolor='none')
+                # ax.set_title('error surface: iter = %d' % it)
+                # plt.show()
 
 
 
         self.loss_list = loss_list
         self.test_sample_list = test_sample_list
+        self.mse_list = mse_list
+        self.mae_list = mae_list
 
 
 
@@ -397,35 +355,38 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
 
 if __name__ == '__main__':
-    M = 10 # number of trajectories (batch size)
-    N = 5 # number of time snapshots
+    M = 20 # number of trajectories (batch size)
+    N = 10 # number of time snapshots
 
-    learning_rate = 2.0*1e-3
-    epoch = 2500
+    learning_rate = 10*1e-3
+    epoch = 1500
 
 
 
 
     r = 0.05
     K = 1.0
+    T = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
     lambda_ = 100 # weight for BC
-    out_of_sample_test_t = 0
-    out_of_sample_test_S = 1
+    out_of_sample_test_t = 0.0
+    out_of_sample_test_S = 1.0
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
+    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S, K, T - out_of_sample_test_t, r, sigma)
     gbm_scheme = 1 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:
-        Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
-        # Xi = torch.ones([M,1])
+        Xi = torch.tensor([np.linspace(0.5,2,M)]).transpose(-1,-2).float()
+        #Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
-    T = 1.0
 
-    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
+
+
+    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input,out_of_sample_exact = test_sample_exact)
 
     model.train(N_Iter=epoch)
 
@@ -461,7 +422,7 @@ if __name__ == '__main__':
 
             return p
 
-    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S,K,T-out_of_sample_test_t,r,sigma)
+
 
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
@@ -485,23 +446,21 @@ if __name__ == '__main__':
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(test_sample_list[400:], label='NN output price')
-    plt.plot(np.ones(len(test_sample_list[400:]))*test_sample_exact, label='test sample exact price')
+    plt.plot(test_sample_list[100:], label='NN output price')
+    plt.plot(np.ones(len(test_sample_list))[100:]*test_sample_exact, label='test sample exact price')
     plt.title('Covergence of the price')
     plt.xlabel("Epochs trained")
     plt.ylabel("Price")
     plt.legend()
     plt.show()
 
-    plt.figure(figsize=[9, 6])
-    plt.plot(np.log10(model.loss_list[400:]), label='NN output loss')
-    plt.title('Convergence of the loss')
-    plt.xlabel("Epochs trained")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.show()
 
-    #%%
+
+
+
+
+
+#%%
     plt.figure()
     plt.plot(np.log10(model.loss_list), label='loss')
     plt.show()
@@ -523,7 +482,7 @@ if __name__ == '__main__':
     plt.title(r'Path of exact $V(S_t,t)$ and learned $\hat{V}(S_t,t)$')
     plt.legend()
 
-    # plt.savefig("figures/path plot 1d.png", dpi=500)
+    plt.savefig("figures/path plot 1d.png", dpi=500)
     plt.show()
 
 #%%
@@ -570,7 +529,7 @@ if __name__ == '__main__':
     ax3.set_xlabel('Time ($t$)')
     ax3.set_ylabel('Price ($S_t$)')
     # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
-    # plt.savefig("figures/price surface 1d.png", dpi=500)
+    plt.savefig("figures/price surface 1d.png", dpi=500)
     plt.show()
 
     # Fourth subplot for Percentage Error surface
@@ -597,14 +556,19 @@ if __name__ == '__main__':
     ax.set_title('Error surface')
     plt.show()
 
+#%%
+    mse_list = model.mse_list
+    mae_list = model.mae_list
+    plt.plot(mse_list, label='mse')
+    plt.plot(mae_list, label='mae')
+    plt.legend()
+    plt.show()
 
-    metrics = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
-    mse = metrics.calculate_mse()
-    mape = metrics.calculate_mape()
-    mae = metrics.calculate_mae()
-    print("MSE:",mse)
-    print("MAPE:",mape)
-    print("MAE:",mae)
+    #%%
+    from common_tools import neural_networks
 
+    Error_measure = neural_networks.errormeasure(Exact_price_surface,NN_price_surface)
 
-
+    mse = Error_measure.calculate_mse()
+    mae = Error_measure.calculate_mae()
+    mape = Error_measure.calculate_mape()

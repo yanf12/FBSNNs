@@ -181,7 +181,7 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 if __name__ == '__main__':
     M = 10  # number of trajectories (batch size)
     N = 50  # number of time snapshots
-    D = 1  # number of dimensions
+    D = 10  # number of dimensions
     learning_rate = 1e-3
     r = 0.00
 

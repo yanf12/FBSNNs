@@ -4,12 +4,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from plotting import newfig, savefig
+# from plotting import newfig, savefig
 from torch.optim.lr_scheduler import StepLR
 from scipy.special import comb
 from scipy.stats import norm
 from common_tools import neural_networks
 from IPython.display import display, clear_output
+import torch.cuda as cuda
+cuda.init()
 
 def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
 
@@ -34,44 +36,45 @@ def theoretical_vanilla_eu(S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
 class neural_net(nn.Module):
     def __init__(self, pathbatch=100, n_dim=100 + 1, n_output=1):
         super(neural_net, self).__init__()
-        self.width = 10
+        self.width = 1024
         self.pathbatch = pathbatch
-        self.fc_1 = nn.Linear(n_dim, self.width)
-        self.fc_2 = nn.Linear(self.width, self.width)
-        self.fc_3 = nn.Linear(self.width, self.width)
-        self.fc_4 = nn.Linear (self.width, self.width)
-        self.fc_5 = nn.Linear(self.width,self.width)
-        self.fc_6 = nn.Linear(self.width,self.width)
-        self.fc_7 = nn.Linear(self.width,self.width)
-        self.fc_8 = nn.Linear(self.width,self.width)
-        self.fc_9 = nn.Linear(self.width,self.width)
-        self.fc_10 = nn.Linear(self.width,self.width)
+        self.fc_1 = nn.Linear(n_dim, self.width).cuda()
+        self.fc_2 = nn.Linear(self.width, self.width).cuda()
+        self.fc_3 = nn.Linear(self.width, self.width).cuda()
+        self.fc_4 = nn.Linear (self.width, self.width).cuda()
+        # self.fc_5 = nn.Linear(self.width,self.width).cuda()
+        # self.fc_6 = nn.Linear(self.width,self.width).cuda()
+        # self.fc_7 = nn.Linear(self.width,self.width).cuda()
+        # self.fc_8 = nn.Linear(self.width,self.width).cuda()
+        # self.fc_9 = nn.Linear(self.width,self.width).cuda()
+        # self.fc_10 = nn.Linear(self.width,self.width).cuda()
 
-        self.out = nn.Linear(self.width, n_output)
+        self.out = nn.Linear(self.width, n_output).cuda()
 
         self.relu = nn.ReLU()
         self.prelu = nn.PReLU()
         self.tanh = nn.Tanh()
-        self.activation = self.tanh
+        self.activation = self.relu
 
         with torch.no_grad():
             torch.nn.init.xavier_uniform(self.fc_1.weight)
             torch.nn.init.xavier_uniform(self.fc_2.weight)
             torch.nn.init.xavier_uniform(self.fc_3.weight)
-            torch.nn.init.xavier_uniform(self.fc_4.weight)
-            torch.nn.init.xavier_uniform(self.fc_5.weight)
-            torch.nn.init.xavier_uniform(self.fc_6.weight)
-            torch.nn.init.xavier_uniform(self.fc_7.weight)
-            torch.nn.init.xavier_uniform(self.fc_8.weight)
-            torch.nn.init.xavier_uniform(self.fc_9.weight)
-            torch.nn.init.xavier_uniform(self.fc_10.weight)
+            # torch.nn.init.xavier_uniform(self.fc_4.weight)
+            # torch.nn.init.xavier_uniform(self.fc_5.weight)
+            # torch.nn.init.xavier_uniform(self.fc_6.weight)
+            # torch.nn.init.xavier_uniform(self.fc_7.weight)
+            # torch.nn.init.xavier_uniform(self.fc_8.weight)
+            # torch.nn.init.xavier_uniform(self.fc_9.weight)
+            # torch.nn.init.xavier_uniform(self.fc_10.weight)
 
     def forward(self, state, train=False):
+        state = state.cuda()
         state = self.activation(self.fc_1(state))
         state = self.activation(self.fc_2(state))
         state = self.activation(self.fc_3(state))
         #state = self.activation(self.fc_4(state))
-        # state = self.activation(self.fc_5(state))
+        #state = self.activation(self.fc_5(state))
         # state = self.activation(self.fc_6(state))
         # state = self.activation(self.fc_7(state))
         # state = self.activation(self.fc_8(state))
@@ -87,7 +90,7 @@ class neural_net(nn.Module):
 
 
 class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
-    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input):
+    def __init__(self, r,K,sigma ,Xi, T, M, N, D, learning_rate, gbm_scheme ,lambda_,out_of_sample_input,out_of_sample_exact):
         super().__init__()
         self.r = r  # interest rate
         self.sigma = sigma # volatility
@@ -98,15 +101,16 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
         self.M = M  # number of trajectories
         self.N = N  # number of time snapshots
         self.D = D  # number of dimensions
-        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1)
+        self.fn_u = neural_net(pathbatch=M, n_dim=D + 1, n_output=1).cuda()
 
         self.optimizer = optim.Adam(self.fn_u.parameters(), lr=learning_rate)
-        self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.8)
+        self.scheduler = StepLR(self.optimizer, step_size=500, gamma=0.6)
 
         self.lambda_ = lambda_
 
         self.gbm_scheme = gbm_scheme # 0:euler scheme for gbm #1: EXP scheme
         self.out_of_sample_input = out_of_sample_input
+        self.out_of_sample_exact = out_of_sample_exact
 
 
     def theoretical_vanilla_eu(self,S0=50, K=50, T=1, r=0.05, sigma=0.4, type_='call'):
@@ -187,21 +191,21 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         return torch.from_numpy(t).float(), torch.from_numpy(W).float()
 
-    def loss_function(self, t, W, Xi):  # M x (N+1) x 1, M x (N+1) x D, MxD
-        loss = torch.zeros(1)
+    def loss_function(self, t, W, Xi):
+        loss = torch.zeros(1, device='cuda')
         X_buffer = []
         Y_buffer = []
+        Xi = Xi.cuda()
+        t = t.cuda()
+        W = W.cuda()
 
         t0 = t[:, 0, :]  # M x 1
         W0 = W[:, 0, :]  # M x D
-        # X0 = torch.tensor([np.linspace(0.5,1.5,self.M)]).transpose(-1,-2).float()  # M x D
-        # X0 = torch.cat([Xi] * self.M)  # M x D
         X0 = Xi
 
         X0.requires_grad = True
-
         t0.requires_grad = True
-        Y0, DuDx0,DuDt0,D2uDx20 = self.net_u_Du(t0, X0)  # M x 1, M x D
+        Y0, DuDx0, DuDt0, D2uDx20 = self.net_u_Du(t0, X0)
 
         X_buffer.append(X0)
         Y_buffer.append(Y0)
@@ -211,51 +215,36 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             t1 = t[:, n + 1, :]
             W1 = W[:, n + 1, :]
 
-            #
-            # print("t1-t0")
-            # print((t1 - t0).shape)
-            #
-            # print("mu_torch:")
-            # print(self.mu_torch(t0, X0, Y0, Z0).shape)
-            # print("sigma_torch:")
-            # print(self.sigma_torch(t0, X0, Y0).shape)
-            # print("W1 - W0:")
-            # print((W1 - W0).unsqueeze(-1).shape)
-            # print(torch.matmul(self.sigma_torch(t0, X0, Y0), (W1 - W0).unsqueeze(-1)).squeeze(2).shape)
-
-            if self.gbm_scheme ==0:
-                X1 = X0 + self.r*X0*(t1-t0) + self.sigma * X0 * (W1 - W0) # Euler-M scheme
-            elif self.gbm_scheme ==1:
-                X1 = X0*torch.exp( (self.r-0.5*self.sigma**2)*(t1-t0) + self.sigma* (W1-W0))
-
-            # print(X1.shape)
+            if self.gbm_scheme == 0:
+                X1 = X0 + self.r * X0 * (t1 - t0) + self.sigma * X0 * (W1 - W0)
+            elif self.gbm_scheme == 1:
+                X1 = X0 * torch.exp((self.r - 0.5 * self.sigma ** 2) * (t1 - t0) + self.sigma * (W1 - W0))
 
             t1.requires_grad = True
-            Y1, DuDx1,DuDt1,D2uDx21 = self.net_u_Du(t1, X1)  # M x 1, M x D
+            Y1, DuDx1, DuDt1, D2uDx21 = self.net_u_Du(t1, X1)
 
-            Y1_tilde = Y0 + self.phi_torch(t0, X0, Y0, DuDx0,DuDt0,D2uDx20) * (t1 - t0) + DuDx0 * self.sigma*X0*(W1-W0)
+            Y1_tilde = Y0 + self.r * Y0 * (t1 - t0) + DuDx0 * self.sigma * X0 * (W1 - W0)
 
             loss = loss + torch.sum((Y1 - Y1_tilde) ** 2)
-            total_weight +=1
+            total_weight += 1
 
             t0 = t1
             W0 = W1
             X0 = X1
             Y0 = Y1
-            DuDx0 = DuDx1 # not sure if this is correct
+            DuDx0 = DuDx1
             DuDt0 = DuDt1
             D2uDx20 = D2uDx21
 
             X_buffer.append(X0)
             Y_buffer.append(Y0)
 
-        loss = loss + self.lambda_*torch.sum((Y1 - self.g_torch(X1,self.K)) ** 2)
+        loss = loss + self.lambda_ * torch.sum((Y1 - self.g_torch(X1, self.K)) ** 2)
         total_weight += self.lambda_
-        loss = loss/total_weight
-        #loss = loss + torch.sum((Z1 - self.Dg_torch(X1)) ** 2)
+        loss = loss / total_weight
 
-        X = torch.stack(X_buffer, dim=1)  # M x N x D
-        Y = torch.stack(Y_buffer, dim=1)  # M x N x 1
+        X = torch.stack(X_buffer, dim=1)
+        Y = torch.stack(Y_buffer, dim=1)
 
         return loss, X, Y, Y[0, 0, 0]
 
@@ -272,27 +261,31 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
 
         mse_list = []
         mae_list = []
+
         for it in range(N_Iter):
+            t_batch, W_batch = self.fetch_minibatch()
+            t_batch = torch.tensor(t_batch, dtype=torch.float32, device='cuda')
+            W_batch = torch.tensor(W_batch, dtype=torch.float32, device='cuda')
 
-
-            t_batch, W_batch = self.fetch_minibatch()  # M x (N+1) x 1, M x (N+1) x D
             loss, X_pred, Y_pred, Y0_pred = self.loss_function(t_batch, W_batch, self.Xi)
-
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             self.scheduler.step()
-            loss_list.append(loss.detach().numpy()[0])
+            loss_list.append(loss.item())
 
-            test_sample_list.append(self.fn_u(self.out_of_sample_input).detach().numpy()[0])
+            test_sample_list.append(self.fn_u(self.out_of_sample_input).item())
+
             NN_price_surface = np.zeros([10, 10])
             Exact_price_surface = np.zeros([10, 10])
-            for i in range(10):
-                for j in range(10):
-                    NN_price_surface[i, j] = model.fn_u(
-                        torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
-                    Exact_price_surface[i, j] = self.theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j],
-                                                                            r=0.05, sigma=0.4, type_='call')
+
+            # for i in range(10):
+            #     for j in range(10):
+            #         input_tensor = torch.tensor([[t_mesh[i, j], S_mesh[i, j]]], dtype=torch.float32, device='cuda')
+            #         NN_price_surface[i, j] = model.fn_u(input_tensor).item()
+            #         Exact_price_surface[i, j] = self.theoretical_vanilla_eu(
+            #             S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j], r=0.05, sigma=0.4, type_='call'
+            #         )
 
             Error_measure = neural_networks.errormeasure(Exact_price_surface, NN_price_surface)
             mse = Error_measure.calculate_mse()
@@ -300,58 +293,45 @@ class FBSNN(nn.Module):  # Forward-Backward Stochastic Neural Network
             mape = Error_measure.calculate_mape()
             mse_list.append(mse)
             mae_list.append(mae)
-            # Print
-            if it % 50 == 0:
-                clear_output(wait=True)
+
+            if it % 20 == 0:
+            #     clear_output(wait=True)
                 elapsed = time.time() - start_time
-                print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' %
-                      (it, elapsed, loss, Y0_pred))
+                print('It: %d, Time: %.2f, Loss: %.3e, Y0: %.3f' % (it, elapsed, loss, Y0_pred))
                 start_time = time.time()
-                plt.plot(np.log10(range(len(loss_list))),np.log10(loss_list))
-                plt.show()
-
-
-                error_surface = np.abs(NN_price_surface - Exact_price_surface)
-                # error_list.append(np.max(error_surface))
-
-
-
-
-                ax = plt.figure()
-                ax = plt.axes(projection='3d')
-                ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis',
-                                edgecolor='none')
-                ax.set_title('surface: iter = %d' % it)
-                plt.show()
-
-                # ax = plt.figure()
-                # ax = plt.axes(projection='3d')
-                # ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis',
-                #                 edgecolor='none')
-                # ax.set_title('error surface: iter = %d' % it)
-                # plt.show()
-
-
+            #     plt.plot(np.log10(range(len(loss_list))), np.log10(loss_list))
+            #     plt.show()
+            #
+            #     plt.plot(test_sample_list)
+            #     plt.plot(np.ones(len(test_sample_list)) * test_sample_exact, label='test sample exact price')
+            #     plt.show()
+            #
+            #     error_surface = np.abs(NN_price_surface - Exact_price_surface)
+            #
+            #     ax = plt.figure()
+            #     ax = plt.axes(projection='3d')
+            #     ax.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis',
+            #                     edgecolor='none')
+            #     ax.set_title('surface: iter = %d' % it)
+            #     plt.show()
 
         self.loss_list = loss_list
         self.test_sample_list = test_sample_list
         self.mse_list = mse_list
         self.mae_list = mae_list
 
-
-
-
     def predict(self, Xi_star, t_star, W_star):
-        _, X_star, Y_star, _ = self.loss_function(t_star, W_star, Xi_star)
+        _, X_star, Y_star, _ = self.loss_function(t_star.cuda(), W_star.cuda(), Xi_star.cuda())
 
         return X_star, Y_star
 
 
+# Train the model
 if __name__ == '__main__':
-    M = 5 # number of trajectories (batch size)
-    N = 50 # number of time snapshots
+    M = 100 # number of trajectories (batch size)
+    N = 10 # number of time snapshots
 
-    learning_rate = 2.0*1e-3
+    learning_rate = 3.0*1e-3
     epoch = 1000
 
 
@@ -359,26 +339,35 @@ if __name__ == '__main__':
 
     r = 0.05
     K = 1.0
+    T = 1.0
     sigma = 0.4
     D = 1  # number of dimensions
-    lambda_ = 1000 # weight for BC
-    out_of_sample_test_t = 0.2
-    out_of_sample_test_S = 0.8
+    lambda_ = 500 # weight for BC
+    out_of_sample_test_t = 0.0
+    out_of_sample_test_S = 1.0
 
     out_of_sample_input = torch.tensor([out_of_sample_test_t, out_of_sample_test_S]).float()
+    out_of_sample_input = out_of_sample_input.cuda()
+    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S, K, T - out_of_sample_test_t, r, sigma)
     gbm_scheme = 1 # in theory 1 is more accurate. 0 is accurate for large N
 
 
     if D==1:
-        Xi = torch.tensor([np.linspace(0.2,2,M)]).transpose(-1,-2).float()
+        Xi = torch.tensor([np.linspace(0.0,2.0,M)]).transpose(-1,-2).float()
         #Xi = torch.ones([M,1])
     else:
         Xi = torch.from_numpy(np.array([1.0, 0.5] * int(D / 2))[None, :]).float()
-    T = 1.0
 
-    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input)
 
+    start_time = time.time()
+
+    model = FBSNN(r,K,sigma,Xi, T, M, N, D, learning_rate,gbm_scheme=1,lambda_=lambda_,out_of_sample_input=out_of_sample_input,out_of_sample_exact = test_sample_exact)
+    model = model.cuda()
     model.train(N_Iter=epoch)
+
+    end_time = time.time()
+
+    print('elapsed time: %.2f' % (end_time - start_time))
 
     t_test, W_test = model.fetch_minibatch()
     X_pred, Y_pred = model.predict(Xi, t_test, W_test)
@@ -412,7 +401,7 @@ if __name__ == '__main__':
 
             return p
 
-    test_sample_exact = theoretical_vanilla_eu(out_of_sample_test_S,K,T-out_of_sample_test_t,r,sigma)
+
 
 
     def u_exact(t, X):  # (N+1) x 1, (N+1) x D
@@ -426,18 +415,18 @@ if __name__ == '__main__':
                 res[i, j] = theoretical_vanilla_eu(S0=X[i, j], K=K, T=T-t[i, 0], r=r, sigma=sigma, type_='call')
         return   res
 
-
+#%%
     t_test = t_test.detach().numpy()
-    X_pred = X_pred.detach().numpy()
-    Y_pred = Y_pred.detach().numpy()
+    X_pred = X_pred.cpu().detach().numpy()
+    Y_pred = Y_pred.cpu().detach().numpy()
     Y_test = np.reshape(u_exact(np.reshape(t_test[0:M, :, :], [-1, 1]), np.reshape(X_pred[0:M, :, :], [-1, D])),
                         [M, -1, 1])
     print(Y_test[0, 0, 0])
 
 #%%
     plt.figure(figsize=[9,6])
-    plt.plot(test_sample_list[400:], label='NN output price')
-    plt.plot(np.ones(len(test_sample_list))[400:]*test_sample_exact, label='test sample exact price')
+    plt.plot(test_sample_list[100:], label='NN output price')
+    plt.plot(np.ones(len(test_sample_list))[100:]*test_sample_exact, label='test sample exact price')
     plt.title('Covergence of the price')
     plt.xlabel("Epochs trained")
     plt.ylabel("Price")
@@ -472,93 +461,98 @@ if __name__ == '__main__':
     plt.title(r'Path of exact $V(S_t,t)$ and learned $\hat{V}(S_t,t)$')
     plt.legend()
 
-    plt.savefig("figures/path plot 1d.png", dpi=500)
+    # plt.savefig("figures/path plot 1d.png", dpi=500)
     plt.show()
 
 #%%
-    # %%
-    t = np.linspace(0, 1, 10)
-    S = np.linspace(0, 2, 10)
-
-    t_mesh, S_mesh = np.meshgrid(t, S)
-
-    NN_price_surface = np.zeros([10, 10])
-    Exact_price_surface = np.zeros([10, 10])
-    for i in range(10):
-        for j in range(10):
-            NN_price_surface[i, j] = model.fn_u(torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
-            Exact_price_surface[i, j] = theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j], r=0.05,
-                                                               sigma=0.4, type_='call')
-    error_surface = NN_price_surface - Exact_price_surface
-    # Calculate percentage error, avoiding division by zero
-    percentage_error_surface = np.where(Exact_price_surface != 0, np.abs(error_surface) / Exact_price_surface * 100, 0)
-
-    fig = plt.figure(figsize=(16, 12))
-
-    # First subplot for Neural Network price surface
-    ax1 = fig.add_subplot(2, 2, 1, projection='3d')
-    surf = ax1.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax1.set_title('Neural Network Price Surface')
-    ax1.set_xlabel('Time ($t$)')
-    ax1.set_ylabel('Price ($S_t$)')
-    # fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=5)  # add color bar
-
-    # Second subplot for Exact price surface
-    ax2 = fig.add_subplot(2, 2, 2, projection='3d')
-    surf = ax2.plot_surface(t_mesh, S_mesh, Exact_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax2.set_title('Exact Price Surface')
-    ax2.set_xlabel('Time ($t$)')
-    ax2.set_ylabel('Price ($S_t$)')
-    # fig.colorbar(surf, ax=ax2, shrink=0.5, aspect=5)  # add color bar
-
-    # Third subplot for Error surface
-    ax3 = fig.add_subplot(2, 2, 3, projection='3d')
-    surf = ax3.plot_surface(t_mesh, S_mesh, np.abs(error_surface), rstride=1, cstride=1, cmap='viridis',
-                            edgecolor='none')
-    ax3.set_title('Absolute Error Surface')
-    ax3.set_xlabel('Time ($t$)')
-    ax3.set_ylabel('Price ($S_t$)')
-    # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
-    plt.savefig("figures/price surface 1d.png", dpi=500)
-    plt.show()
+    # # %%
+    # t = np.linspace(0, 1, 10)
+    # S = np.linspace(0, 2, 10)
+    #
+    # t_mesh, S_mesh = np.meshgrid(t, S)
+    #
+    # # NN_price_surface = np.zeros([10, 10])
+    # # Exact_price_surface = np.zeros([10, 10])
+    # # for i in range(10):
+    # #     for j in range(10):
+    # #         NN_price_surface[i, j] = model.fn_u(torch.tensor([[t_mesh[i, j], S_mesh[i, j]]]).float()).detach().numpy()
+    # #         Exact_price_surface[i, j] = theoretical_vanilla_eu(S0=S_mesh[i, j], K=1, T=1 - t_mesh[i, j], r=0.05,
+    # #                                                            sigma=0.4, type_='call')
+    # # error_surface = NN_price_surface - Exact_price_surface
+    # # Calculate percentage error, avoiding division by zero
+    # percentage_error_surface = np.where(Exact_price_surface != 0, np.abs(error_surface) / Exact_price_surface * 100, 0)
+    #
+    # fig = plt.figure(figsize=(16, 12))
+    #
+    # # First subplot for Neural Network price surface
+    # ax1 = fig.add_subplot(2, 2, 1, projection='3d')
+    # surf = ax1.plot_surface(t_mesh, S_mesh, NN_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax1.set_title('Neural Network Price Surface')
+    # ax1.set_xlabel('Time ($t$)')
+    # ax1.set_ylabel('Price ($S_t$)')
+    # # fig.colorbar(surf, ax=ax1, shrink=0.5, aspect=5)  # add color bar
+    #
+    # # Second subplot for Exact price surface
+    # ax2 = fig.add_subplot(2, 2, 2, projection='3d')
+    # surf = ax2.plot_surface(t_mesh, S_mesh, Exact_price_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax2.set_title('Exact Price Surface')
+    # ax2.set_xlabel('Time ($t$)')
+    # ax2.set_ylabel('Price ($S_t$)')
+    # # fig.colorbar(surf, ax=ax2, shrink=0.5, aspect=5)  # add color bar
+    #
+    # # Third subplot for Error surface
+    # ax3 = fig.add_subplot(2, 2, 3, projection='3d')
+    # surf = ax3.plot_surface(t_mesh, S_mesh, np.abs(error_surface), rstride=1, cstride=1, cmap='viridis',
+    #                         edgecolor='none')
+    # ax3.set_title('Absolute Error Surface')
+    # ax3.set_xlabel('Time ($t$)')
+    # ax3.set_ylabel('Price ($S_t$)')
+    # # fig.colorbar(surf, ax=ax3, shrink=0.5, aspect=5)  # add color bar
+    # # plt.savefig("figures/price surface 1d.png", dpi=500)
+    # plt.show()
 
     # Fourth subplot for Percentage Error surface
 #%%
-    errors = np.sqrt((Y_test - Y_pred) ** 2 )
-    mean_errors = np.mean(errors, 0)
-    std_errors = np.std(errors, 0)
-
-    plt.figure()
-
-    plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
-    plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
-    plt.xlabel(r'$t$')
-    plt.ylabel('relative error')
-    plt.title('100-dimensional Black-Scholes-Barenblatt')
-    plt.legend()
-    plt.show()
+    # errors = np.sqrt((Y_test - Y_pred) ** 2 )
+    # mean_errors = np.mean(errors, 0)
+    # std_errors = np.std(errors, 0)
+    #
+    # plt.figure()
+    #
+    # plt.plot(t_test[0, :, 0], mean_errors, 'b', label='mean')
+    # plt.plot(t_test[0, :, 0], mean_errors + 2 * std_errors, 'r--', label='mean + two standard deviations')
+    # plt.xlabel(r'$t$')
+    # plt.ylabel('relative error')
+    # plt.title('100-dimensional Black-Scholes-Barenblatt')
+    # plt.legend()
+    # plt.show()
 
     #%%
-    error_surface = NN_price_surface- Exact_price_surface
-    ax = plt.figure()
-    ax = plt.axes(projection='3d')
-    ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
-    ax.set_title('Error surface')
-    plt.show()
+    # error_surface = NN_price_surface- Exact_price_surface
+    # ax = plt.figure()
+    # ax = plt.axes(projection='3d')
+    # ax.plot_surface(t_mesh, S_mesh, error_surface, rstride=1, cstride=1, cmap='viridis', edgecolor='none')
+    # ax.set_title('Error surface')
+    # plt.show()
 
 #%%
-    mse_list = model.mse_list
-    mae_list = model.mae_list
-    plt.plot(mse_list[100:], label='mse')
-    plt.plot(mae_list[100:], label='mae')
-    plt.legend()
-    plt.show()
-
-    #%%
-    from common_tools import neural_networks
-
-    Error_measure = neural_networks.errormeasure(Exact_price_surface,NN_price_surface)
-
-    mse = Error_measure.calculate_mse()
-    mae = Error_measure.calculate_mae()
-    mape = Error_measure.calculate_mape()
+    # mse_list = model.mse_list
+    # mae_list = model.mae_list
+    # plt.plot(mse_list, label='mse')
+    # plt.plot(mae_list, label='mae')
+    # plt.legend()
+    # plt.show()
+    #
+    # #%%
+    # from common_tools import neural_networks
+    #
+    # Error_measure = neural_networks.errormeasure(Exact_price_surface,NN_price_surface)
+    #
+    # mse = Error_measure.calculate_mse()
+    # mae = Error_measure.calculate_mae()
+    # mape = Error_measure.calculate_mape()
+    #
+    #
+    # plt.plot(test_sample_list[50:])
+    # plt.plot(np.ones(len(test_sample_list[50:])) * test_sample_exact, label='test sample exact price')
+    # plt.show()
